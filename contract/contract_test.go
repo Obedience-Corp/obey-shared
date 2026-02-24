@@ -3,428 +3,467 @@ package contract
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
-func TestRead_MissingFile(t *testing.T) {
-	c, err := Read("/nonexistent/path/watchers.yaml")
+// resolvePath resolves symlinks in a path. Required on macOS where
+// /var -> /private/var causes path comparison failures with t.TempDir().
+func resolvePath(t *testing.T, path string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(path)
 	if err != nil {
-		t.Fatalf("Read missing file: unexpected error: %v", err)
+		t.Fatalf("resolve path %s: %v", path, err)
 	}
-	if c.Version != ContractVersion {
-		t.Errorf("Version = %d, want %d", c.Version, ContractVersion)
-	}
-	if len(c.Entries) != 0 {
-		t.Errorf("Entries length = %d, want 0", len(c.Entries))
+	return resolved
+}
+
+// validEntry returns a minimal valid Entry for use in tests. Callers can
+// override fields as needed.
+func validEntry(id, owner string) Entry {
+	return Entry{
+		ID:     id,
+		Path:   "some/path/" + id,
+		Type:   TypeFestivalLifecycle,
+		Format: FormatYAML,
+		Watch:  WatchFile,
+		Owner:  owner,
 	}
 }
 
-func TestRead_ValidFile(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "watchers.yaml")
-
-	content := `version: 1
+func TestRead(t *testing.T) {
+	tests := []struct {
+		name      string
+		setup     func(t *testing.T, path string)
+		wantErr   bool
+		wantVer   int
+		wantCount int
+	}{
+		{
+			name:      "missing file returns empty contract",
+			setup:     func(t *testing.T, path string) {},
+			wantErr:   false,
+			wantVer:   ContractVersion,
+			wantCount: 0,
+		},
+		{
+			name: "valid YAML returns correct contract",
+			setup: func(t *testing.T, path string) {
+				data := []byte(`version: 1
 entries:
-  - id: "test.entry"
-    path: "test/path"
-    type: "campaign.metadata"
+  - id: test.entry
+    path: some/path
+    type: festival.lifecycle
     format: yaml
     watch: file
-    owner: camp
-`
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write test file: %v", err)
-	}
-
-	c, err := Read(path)
-	if err != nil {
-		t.Fatalf("Read valid file: unexpected error: %v", err)
-	}
-	if c.Version != 1 {
-		t.Errorf("Version = %d, want 1", c.Version)
-	}
-	if len(c.Entries) != 1 {
-		t.Fatalf("Entries length = %d, want 1", len(c.Entries))
-	}
-	if c.Entries[0].ID != "test.entry" {
-		t.Errorf("Entry ID = %q, want %q", c.Entries[0].ID, "test.entry")
-	}
-}
-
-func TestRead_InvalidYAML(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "watchers.yaml")
-
-	if err := os.WriteFile(path, []byte(":::not yaml:::"), 0o644); err != nil {
-		t.Fatalf("write test file: %v", err)
-	}
-
-	_, err := Read(path)
-	if err == nil {
-		t.Fatal("Read invalid YAML: expected error, got nil")
-	}
-}
-
-func TestRead_InvalidContract(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "watchers.yaml")
-
-	// Version 0 is invalid.
-	content := `version: 0
+    owner: fest
+`)
+				if err := os.WriteFile(path, data, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantErr:   false,
+			wantVer:   1,
+			wantCount: 1,
+		},
+		{
+			name: "invalid YAML returns error",
+			setup: func(t *testing.T, path string) {
+				if err := os.WriteFile(path, []byte(`{{{not yaml at all`), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantErr: true,
+		},
+		{
+			name: "unknown version returns validation error",
+			setup: func(t *testing.T, path string) {
+				data := []byte(`version: 999
 entries: []
-`
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write test file: %v", err)
-	}
-
-	_, err := Read(path)
-	if err == nil {
-		t.Fatal("Read invalid contract: expected error, got nil")
-	}
-}
-
-func TestContractPath(t *testing.T) {
-	got := ContractPath("/home/user/campaign")
-	want := "/home/user/campaign/.campaign/watchers.yaml"
-	if got != want {
-		t.Errorf("ContractPath = %q, want %q", got, want)
-	}
-}
-
-func TestWriteEntries_FirstWrite(t *testing.T) {
-	dir := t.TempDir()
-	campaignDir := filepath.Join(dir, ".campaign")
-	path := filepath.Join(campaignDir, "watchers.yaml")
-
-	entries := []Entry{
+`)
+				if err := os.WriteFile(path, data, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantErr: true,
+		},
 		{
-			ID:     "test.entry",
-			Path:   "test/path",
-			Type:   TypeCampaignMetadata,
-			Format: FormatYAML,
-			Watch:  WatchFile,
-			Owner:  OwnerCamp,
+			name: "permission error returns error",
+			setup: func(t *testing.T, path string) {
+				if err := os.WriteFile(path, []byte("version: 1\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Chmod(path, 0o000); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { os.Chmod(path, 0o644) })
+			},
+			wantErr: true,
 		},
 	}
 
-	if err := WriteEntries(path, OwnerCamp, entries); err != nil {
-		t.Fatalf("WriteEntries: unexpected error: %v", err)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := resolvePath(t, t.TempDir())
+			path := filepath.Join(dir, "watchers.yaml")
+			tt.setup(t, path)
 
-	// Read it back and verify.
-	c, err := Read(path)
-	if err != nil {
-		t.Fatalf("Read after write: %v", err)
-	}
-	if len(c.Entries) != 1 {
-		t.Fatalf("Entries length = %d, want 1", len(c.Entries))
-	}
-	if c.Entries[0].ID != "test.entry" {
-		t.Errorf("Entry ID = %q, want %q", c.Entries[0].ID, "test.entry")
-	}
-}
-
-func TestWriteEntries_OwnerScopedMerge(t *testing.T) {
-	dir := t.TempDir()
-	campaignDir := filepath.Join(dir, ".campaign")
-	path := filepath.Join(campaignDir, "watchers.yaml")
-
-	// Camp writes its entry.
-	campEntries := []Entry{
-		{
-			ID:     "camp.entry",
-			Path:   "camp/path",
-			Type:   TypeCampaignMetadata,
-			Format: FormatYAML,
-			Watch:  WatchFile,
-			Owner:  OwnerCamp,
-		},
-	}
-	if err := WriteEntries(path, OwnerCamp, campEntries); err != nil {
-		t.Fatalf("WriteEntries camp: %v", err)
-	}
-
-	// Fest writes its entry.
-	festEntries := []Entry{
-		{
-			ID:     "fest.entry",
-			Path:   "fest/path",
-			Type:   TypeFestivalLifecycle,
-			Format: FormatYAML,
-			Watch:  WatchFile,
-			Owner:  OwnerFest,
-		},
-	}
-	if err := WriteEntries(path, OwnerFest, festEntries); err != nil {
-		t.Fatalf("WriteEntries fest: %v", err)
-	}
-
-	// Both entries should exist.
-	c, err := Read(path)
-	if err != nil {
-		t.Fatalf("Read after both writes: %v", err)
-	}
-	if len(c.Entries) != 2 {
-		t.Fatalf("Entries length = %d, want 2", len(c.Entries))
-	}
-
-	// Now camp overwrites its entry. Fest's should remain.
-	newCampEntries := []Entry{
-		{
-			ID:     "camp.new_entry",
-			Path:   "camp/new_path",
-			Type:   TypeCampaignRegistry,
-			Format: FormatYAML,
-			Watch:  WatchFile,
-			Owner:  OwnerCamp,
-		},
-	}
-	if err := WriteEntries(path, OwnerCamp, newCampEntries); err != nil {
-		t.Fatalf("WriteEntries camp overwrite: %v", err)
-	}
-
-	c, err = Read(path)
-	if err != nil {
-		t.Fatalf("Read after overwrite: %v", err)
-	}
-	if len(c.Entries) != 2 {
-		t.Fatalf("Entries length = %d, want 2", len(c.Entries))
-	}
-
-	// Find entries by owner.
-	var campFound, festFound bool
-	for _, e := range c.Entries {
-		if e.Owner == OwnerCamp {
-			campFound = true
-			if e.ID != "camp.new_entry" {
-				t.Errorf("Camp entry ID = %q, want %q", e.ID, "camp.new_entry")
+			got, err := Read(path)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
 			}
-		}
-		if e.Owner == OwnerFest {
-			festFound = true
-			if e.ID != "fest.entry" {
-				t.Errorf("Fest entry ID = %q, want %q", e.ID, "fest.entry")
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
 			}
-		}
-	}
-	if !campFound {
-		t.Error("Camp entry not found after overwrite")
-	}
-	if !festFound {
-		t.Error("Fest entry not found after overwrite")
+			if got.Version != tt.wantVer {
+				t.Errorf("version = %d, want %d", got.Version, tt.wantVer)
+			}
+			if len(got.Entries) != tt.wantCount {
+				t.Errorf("entries count = %d, want %d", len(got.Entries), tt.wantCount)
+			}
+		})
 	}
 }
 
-func TestValidate_ValidContract(t *testing.T) {
-	c := &Contract{
-		Version: 1,
-		Entries: []Entry{
-			{
-				ID:     "test.entry",
-				Path:   "test/path",
-				Type:   TypeCampaignMetadata,
-				Format: FormatYAML,
-				Watch:  WatchFile,
-				Owner:  OwnerCamp,
+func TestWriteEntries(t *testing.T) {
+	tests := []struct {
+		name    string
+		setup   func(t *testing.T, path string)
+		owner   string
+		entries []Entry
+		wantErr bool
+		check   func(t *testing.T, path string)
+	}{
+		{
+			name:  "first write to non-existent file creates contract",
+			setup: func(t *testing.T, path string) {},
+			owner: OwnerFest,
+			entries: []Entry{
+				validEntry("fest.entry1", OwnerFest),
+			},
+			check: func(t *testing.T, path string) {
+				c, err := Read(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(c.Entries) != 1 {
+					t.Fatalf("entries = %d, want 1", len(c.Entries))
+				}
+				if c.Entries[0].ID != "fest.entry1" {
+					t.Errorf("entry ID = %q, want %q", c.Entries[0].ID, "fest.entry1")
+				}
 			},
 		},
+		{
+			name: "write preserves other owner entries",
+			setup: func(t *testing.T, path string) {
+				err := WriteEntries(path, OwnerCamp, []Entry{
+					validEntry("camp.entry1", OwnerCamp),
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+			},
+			owner: OwnerFest,
+			entries: []Entry{
+				validEntry("fest.entry1", OwnerFest),
+			},
+			check: func(t *testing.T, path string) {
+				c, err := Read(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(c.Entries) != 2 {
+					t.Fatalf("entries = %d, want 2", len(c.Entries))
+				}
+				foundCamp := false
+				foundFest := false
+				for _, e := range c.Entries {
+					if e.ID == "camp.entry1" {
+						foundCamp = true
+					}
+					if e.ID == "fest.entry1" {
+						foundFest = true
+					}
+				}
+				if !foundCamp {
+					t.Error("camp entry was removed")
+				}
+				if !foundFest {
+					t.Error("fest entry was not added")
+				}
+			},
+		},
+		{
+			name: "write replaces same owner entries",
+			setup: func(t *testing.T, path string) {
+				err := WriteEntries(path, OwnerFest, []Entry{
+					validEntry("fest.old", OwnerFest),
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+			},
+			owner: OwnerFest,
+			entries: []Entry{
+				validEntry("fest.new", OwnerFest),
+			},
+			check: func(t *testing.T, path string) {
+				c, err := Read(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(c.Entries) != 1 {
+					t.Fatalf("entries = %d, want 1", len(c.Entries))
+				}
+				if c.Entries[0].ID != "fest.new" {
+					t.Errorf("entry ID = %q, want %q", c.Entries[0].ID, "fest.new")
+				}
+			},
+		},
+		{
+			name:  "write to non-existent directory creates directory",
+			setup: func(t *testing.T, path string) {},
+			owner: OwnerFest,
+			entries: []Entry{
+				validEntry("fest.entry1", OwnerFest),
+			},
+			check: func(t *testing.T, path string) {
+				if _, err := os.Stat(path); os.IsNotExist(err) {
+					t.Error("file was not created")
+				}
+			},
+		},
+		{
+			name: "write with invalid entries returns error",
+			setup: func(t *testing.T, path string) {},
+			owner: OwnerCamp,
+			entries: []Entry{
+				{Path: "test/path", Type: TypeCampaignMetadata, Format: FormatYAML, Watch: WatchFile, Owner: OwnerCamp},
+			},
+			wantErr: true,
+		},
+		{
+			name: "write with corrupt existing file returns error",
+			setup: func(t *testing.T, path string) {
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(":::bad:::"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			owner: OwnerCamp,
+			entries: []Entry{
+				validEntry("camp.entry1", OwnerCamp),
+			},
+			wantErr: true,
+		},
 	}
-	if err := Validate(c); err != nil {
-		t.Errorf("Validate valid contract: unexpected error: %v", err)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := resolvePath(t, t.TempDir())
+			path := filepath.Join(dir, ".campaign", "watchers.yaml")
+
+			if tt.setup != nil {
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				tt.setup(t, path)
+			}
+
+			err := WriteEntries(path, tt.owner, tt.entries)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tt.check != nil {
+				tt.check(t, path)
+			}
+		})
 	}
 }
 
-func TestValidate_EmptyContract(t *testing.T) {
-	c := &Contract{
-		Version: 1,
-		Entries: []Entry{},
-	}
-	if err := Validate(c); err != nil {
-		t.Errorf("Validate empty contract: unexpected error: %v", err)
-	}
-}
-
-func TestValidate_Errors(t *testing.T) {
+func TestValidate(t *testing.T) {
 	tests := []struct {
 		name     string
 		contract *Contract
-		wantErr  string
+		wantErr  bool
+		errMsg   string
 	}{
 		{
-			name:     "version zero",
-			contract: &Contract{Version: 0},
-			wantErr:  "contract version must be >= 1",
-		},
-		{
-			name:     "version too high",
-			contract: &Contract{Version: ContractVersion + 1},
-			wantErr:  "is newer than supported version",
-		},
-		{
-			name: "empty ID",
-			contract: &Contract{
-				Version: 1,
-				Entries: []Entry{{Path: "p", Type: "t", Format: FormatYAML, Watch: WatchFile, Owner: "o"}},
-			},
-			wantErr: "ID is required",
-		},
-		{
-			name: "duplicate ID",
+			name: "valid contract passes",
 			contract: &Contract{
 				Version: 1,
 				Entries: []Entry{
-					{ID: "dup", Path: "p1", Type: "t", Format: FormatYAML, Watch: WatchFile, Owner: "o"},
-					{ID: "dup", Path: "p2", Type: "t", Format: FormatYAML, Watch: WatchFile, Owner: "o"},
+					validEntry("test.one", OwnerFest),
+					validEntry("test.two", OwnerCamp),
 				},
 			},
-			wantErr: "duplicate ID",
+			wantErr: false,
 		},
 		{
-			name: "empty path",
+			name: "empty entries is valid",
 			contract: &Contract{
 				Version: 1,
-				Entries: []Entry{{ID: "id", Type: "t", Format: FormatYAML, Watch: WatchFile, Owner: "o"}},
+				Entries: []Entry{},
 			},
-			wantErr: "Path is required",
+			wantErr: false,
 		},
 		{
-			name: "empty type",
+			name: "missing version fails",
 			contract: &Contract{
-				Version: 1,
-				Entries: []Entry{{ID: "id", Path: "p", Format: FormatYAML, Watch: WatchFile, Owner: "o"}},
+				Version: 0,
+				Entries: []Entry{},
 			},
-			wantErr: "Type is required",
+			wantErr: true,
+			errMsg:  "version must be >= 1",
 		},
 		{
-			name: "empty owner",
+			name: "unknown version fails",
 			contract: &Contract{
-				Version: 1,
-				Entries: []Entry{{ID: "id", Path: "p", Type: "t", Format: FormatYAML, Watch: WatchFile}},
+				Version: ContractVersion + 1,
+				Entries: []Entry{},
 			},
-			wantErr: "Owner is required",
+			wantErr: true,
+			errMsg:  "newer than supported",
 		},
 		{
-			name: "empty watch",
+			name: "duplicate entry IDs fail",
 			contract: &Contract{
 				Version: 1,
-				Entries: []Entry{{ID: "id", Path: "p", Type: "t", Format: FormatYAML, Owner: "o"}},
+				Entries: []Entry{
+					validEntry("same.id", OwnerFest),
+					validEntry("same.id", OwnerCamp),
+				},
 			},
-			wantErr: "Watch is required",
+			wantErr: true,
+			errMsg:  "duplicate ID",
 		},
 		{
-			name: "unknown watch mode",
+			name: "entry missing ID fails",
 			contract: &Contract{
 				Version: 1,
-				Entries: []Entry{{ID: "id", Path: "p", Type: "t", Format: FormatYAML, Watch: "bad", Owner: "o"}},
+				Entries: []Entry{
+					{Path: "some/path", Type: TypeFestivalLifecycle, Format: FormatYAML, Watch: WatchFile, Owner: OwnerFest},
+				},
 			},
-			wantErr: "unknown Watch mode",
+			wantErr: true,
+			errMsg:  "ID is required",
 		},
 		{
-			name: "empty format",
+			name: "entry missing Path fails",
 			contract: &Contract{
 				Version: 1,
-				Entries: []Entry{{ID: "id", Path: "p", Type: "t", Watch: WatchFile, Owner: "o"}},
+				Entries: []Entry{
+					{ID: "test.entry", Type: TypeFestivalLifecycle, Format: FormatYAML, Watch: WatchFile, Owner: OwnerFest},
+				},
 			},
-			wantErr: "Format is required",
+			wantErr: true,
+			errMsg:  "Path is required",
 		},
 		{
-			name: "unknown format",
+			name: "entry missing Type fails",
 			contract: &Contract{
 				Version: 1,
-				Entries: []Entry{{ID: "id", Path: "p", Type: "t", Format: "bad", Watch: WatchFile, Owner: "o"}},
+				Entries: []Entry{
+					{ID: "test.entry", Path: "some/path", Format: FormatYAML, Watch: WatchFile, Owner: OwnerFest},
+				},
 			},
-			wantErr: "unknown Format",
+			wantErr: true,
+			errMsg:  "Type is required",
+		},
+		{
+			name: "entry missing Owner fails",
+			contract: &Contract{
+				Version: 1,
+				Entries: []Entry{
+					{ID: "test.entry", Path: "some/path", Type: TypeFestivalLifecycle, Format: FormatYAML, Watch: WatchFile},
+				},
+			},
+			wantErr: true,
+			errMsg:  "Owner is required",
+		},
+		{
+			name: "entry with unknown WatchMode fails",
+			contract: &Contract{
+				Version: 1,
+				Entries: []Entry{
+					{ID: "test.entry", Path: "some/path", Type: TypeFestivalLifecycle, Format: FormatYAML, Watch: WatchMode("invalid"), Owner: OwnerFest},
+				},
+			},
+			wantErr: true,
+			errMsg:  "unknown Watch mode",
+		},
+		{
+			name: "entry with unknown Format fails",
+			contract: &Contract{
+				Version: 1,
+				Entries: []Entry{
+					{ID: "test.entry", Path: "some/path", Type: TypeFestivalLifecycle, Format: Format("invalid"), Watch: WatchFile, Owner: OwnerFest},
+				},
+			},
+			wantErr: true,
+			errMsg:  "unknown Format",
+		},
+		{
+			name: "entry missing Watch fails",
+			contract: &Contract{
+				Version: 1,
+				Entries: []Entry{
+					{ID: "test.entry", Path: "some/path", Type: TypeFestivalLifecycle, Format: FormatYAML, Owner: OwnerFest},
+				},
+			},
+			wantErr: true,
+			errMsg:  "Watch is required",
+		},
+		{
+			name: "entry missing Format fails",
+			contract: &Contract{
+				Version: 1,
+				Entries: []Entry{
+					{ID: "test.entry", Path: "some/path", Type: TypeFestivalLifecycle, Watch: WatchFile, Owner: OwnerFest},
+				},
+			},
+			wantErr: true,
+			errMsg:  "Format is required",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := Validate(tt.contract)
-			if err == nil {
-				t.Fatalf("expected error containing %q, got nil", tt.wantErr)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if tt.errMsg != "" {
+					if got := err.Error(); !strings.Contains(got, tt.errMsg) {
+						t.Errorf("error = %q, want substring %q", got, tt.errMsg)
+					}
+				}
+				return
 			}
-			if got := err.Error(); !contains(got, tt.wantErr) {
-				t.Errorf("error = %q, want substring %q", got, tt.wantErr)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
 			}
 		})
 	}
 }
 
-func TestRead_PermissionError(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "watchers.yaml")
-
-	if err := os.WriteFile(path, []byte("version: 1\n"), 0o644); err != nil {
-		t.Fatalf("write test file: %v", err)
+func TestContractPath(t *testing.T) {
+	got := ContractPath("/home/user/my-campaign")
+	want := "/home/user/my-campaign/.campaign/watchers.yaml"
+	if got != want {
+		t.Errorf("ContractPath = %q, want %q", got, want)
 	}
-	// Make file unreadable.
-	if err := os.Chmod(path, 0o000); err != nil {
-		t.Fatalf("chmod: %v", err)
-	}
-	t.Cleanup(func() { os.Chmod(path, 0o644) })
-
-	_, err := Read(path)
-	if err == nil {
-		t.Fatal("Read unreadable file: expected error, got nil")
-	}
-}
-
-func TestWriteEntries_InvalidEntries(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, ".campaign", "watchers.yaml")
-
-	// Write entries with missing required field (no ID).
-	entries := []Entry{
-		{
-			Path:   "test/path",
-			Type:   TypeCampaignMetadata,
-			Format: FormatYAML,
-			Watch:  WatchFile,
-			Owner:  OwnerCamp,
-		},
-	}
-
-	err := WriteEntries(path, OwnerCamp, entries)
-	if err == nil {
-		t.Fatal("WriteEntries with invalid entries: expected error, got nil")
-	}
-}
-
-func TestWriteEntries_ReadError(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "watchers.yaml")
-
-	// Write an invalid YAML file so Read returns a parse error.
-	if err := os.WriteFile(path, []byte(":::bad:::"), 0o644); err != nil {
-		t.Fatalf("write test file: %v", err)
-	}
-
-	entries := []Entry{
-		{
-			ID:     "test.entry",
-			Path:   "test/path",
-			Type:   TypeCampaignMetadata,
-			Format: FormatYAML,
-			Watch:  WatchFile,
-			Owner:  OwnerCamp,
-		},
-	}
-
-	err := WriteEntries(path, OwnerCamp, entries)
-	if err == nil {
-		t.Fatal("WriteEntries with unreadable existing file: expected error, got nil")
-	}
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && searchString(s, substr)
-}
-
-func searchString(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
