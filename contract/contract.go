@@ -95,14 +95,33 @@ func WriteEntries(path string, owner string, entries []Entry) error {
 		return fmt.Errorf("write entries: create directory %s: %w", dir, err)
 	}
 
-	// Write to temp file in the same directory.
-	tmp := filepath.Join(dir, ".watchers.yaml.tmp")
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	// Write to a unique temp file in the same directory. Using CreateTemp avoids
+	// a write-after-write race when two processes call WriteEntries concurrently.
+	f, err := os.CreateTemp(dir, ".watchers.yaml.*.tmp")
+	if err != nil {
+		return fmt.Errorf("write entries: create temp file: %w", err)
+	}
+	tmp := f.Name()
+
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(tmp)
 		return fmt.Errorf("write entries: write temp file: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("write entries: close temp file: %w", err)
+	}
+
+	// Set desired permissions (CreateTemp uses 0600 by default).
+	if err := os.Chmod(tmp, 0o644); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("write entries: chmod temp file: %w", err)
 	}
 
 	// Atomic rename.
 	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
 		return fmt.Errorf("write entries: rename temp to target: %w", err)
 	}
 

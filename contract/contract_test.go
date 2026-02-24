@@ -460,6 +460,28 @@ func TestValidate(t *testing.T) {
 	}
 }
 
+func TestWriteEntries_ReadOnlyDir(t *testing.T) {
+	dir := resolvePath(t, t.TempDir())
+	target := filepath.Join(dir, "readonly", "watchers.yaml")
+
+	// Create the directory then make it read-only.
+	if err := os.MkdirAll(filepath.Join(dir, "readonly"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(dir, "readonly"), 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(filepath.Join(dir, "readonly"), 0o755) })
+
+	err := WriteEntries(target, OwnerFest, []Entry{validEntry("test.entry", OwnerFest)})
+	if err == nil {
+		t.Fatal("expected error writing to read-only directory, got nil")
+	}
+	if !strings.Contains(err.Error(), "temp file") {
+		t.Errorf("error = %q, want mention of temp file", err.Error())
+	}
+}
+
 func TestContractPath(t *testing.T) {
 	got := ContractPath("/home/user/my-campaign")
 	want := "/home/user/my-campaign/.campaign/watchers.yaml"

@@ -37,7 +37,7 @@ type Entry struct {
 	Status string `yaml:"status,omitempty"`
 
 	// Template indicates whether this entry uses per-festival path templates.
-	// When true, the Path field contains template variables like {festival_dir}
+	// When true, the Path field contains template variables like {festival}
 	// that the daemon expands for each active festival.
 	Template bool `yaml:"template,omitempty"`
 
