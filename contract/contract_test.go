@@ -238,7 +238,7 @@ func TestWriteEntries(t *testing.T) {
 			},
 		},
 		{
-			name: "write with invalid entries returns error",
+			name:  "write with invalid entries returns error",
 			setup: func(t *testing.T, path string) {},
 			owner: OwnerCamp,
 			entries: []Entry{
