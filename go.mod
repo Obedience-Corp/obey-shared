@@ -1,4 +1,4 @@
-module github.com/obediencecorp/obey-shared
+module github.com/Obedience-Corp/obey-shared
 
 go 1.25.6
 
