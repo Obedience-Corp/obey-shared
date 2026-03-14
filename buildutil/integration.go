@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -22,18 +21,11 @@ func doIntegration(cfg BuildConfig, verbose bool) error {
 	// Clean up orphaned test containers
 	ui.Task("Cleaning", "orphaned test containers")
 	cleanCmd := exec.Command("docker", "container", "prune", "-f", "--filter", "label=org.testcontainers=true")
-	_ = cleanCmd.Run()
-	ui.TaskPass()
-
-	// Set up Docker environment for Colima compatibility
-	dockerHost := os.Getenv("DOCKER_HOST")
-	if dockerHost == "" {
-		colimaSocket := filepath.Join(os.Getenv("HOME"), ".colima", "default", "docker.sock")
-		if _, err := os.Stat(colimaSocket); err == nil {
-			_ = os.Setenv("DOCKER_HOST", "unix://"+colimaSocket)
-		}
+	if err := cleanCmd.Run(); err != nil {
+		ui.TaskFail()
+	} else {
+		ui.TaskPass()
 	}
-	_ = os.Setenv("TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE", "/var/run/docker.sock")
 
 	// Build Linux binary for Docker-based integration tests
 	ui.Task("Building", "Linux binary for Docker tests")
@@ -115,26 +107,14 @@ func doIntegration(cfg BuildConfig, verbose bool) error {
 		var testsPassed, testsFailed int
 		var failedTests []string
 
-		// Docker environment variables for Colima/testcontainers compatibility
-		dockerEnv := os.Environ()
-		if os.Getenv("DOCKER_HOST") == "" {
-			colimaSocket := filepath.Join(os.Getenv("HOME"), ".colima", "default", "docker.sock")
-			if _, err := os.Stat(colimaSocket); err == nil {
-				dockerEnv = append(dockerEnv, "DOCKER_HOST=unix://"+colimaSocket)
-			}
-		}
-		dockerEnv = append(dockerEnv, "TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock")
-
 		if verbose {
 			cmd := exec.Command("go", "test", "-v", "-parallel", "4", "-tags", "integration", "-timeout", "2m", "./"+suite)
-			cmd.Env = dockerEnv
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			ui.Progress(i+1, total, fmt.Sprintf("Testing %s", name))
 			pass = cmd.Run() == nil
 		} else {
 			cmd := exec.Command("go", "test", "-json", "-count=1", "-parallel", "4", "-tags", "integration", "-timeout", "2m", "./"+suite)
-			cmd.Env = dockerEnv
 			stdout, err := cmd.StdoutPipe()
 			if err != nil {
 				return fmt.Errorf("failed to create stdout pipe: %w", err)

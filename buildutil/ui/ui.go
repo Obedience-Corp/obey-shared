@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 	"unicode/utf8"
+
+	"golang.org/x/term"
 )
 
 // ansiPattern matches all ANSI escape sequences.
@@ -44,6 +46,15 @@ func isatty() bool {
 		return false
 	}
 	return fi.Mode()&os.ModeCharDevice != 0
+}
+
+// TermWidth returns the terminal width. Works on all platforms via x/term.
+func TermWidth() int {
+	w, _, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil || w <= 0 {
+		return 80
+	}
+	return w
 }
 
 // Center centers text to given width
