@@ -1,6 +1,7 @@
 package buildutil
 
 import (
+	"slices"
 	"testing"
 )
 
@@ -55,7 +56,7 @@ func TestBuildTagsArgs(t *testing.T) {
 			}
 
 			got := buildTagsArgs(tt.cfg)
-			if !sliceEqual(got, tt.want) {
+			if !slices.Equal(got, tt.want) {
 				t.Errorf("buildTagsArgs() = %v, want %v", got, tt.want)
 			}
 		})
@@ -161,20 +162,3 @@ func TestParseTestOutput(t *testing.T) {
 	}
 }
 
-func sliceEqual(a, b []string) bool {
-	if a == nil && b == nil {
-		return true
-	}
-	if a == nil || b == nil {
-		return false
-	}
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
