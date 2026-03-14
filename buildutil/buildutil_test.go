@@ -92,10 +92,10 @@ func TestIntegrationTestDir(t *testing.T) {
 
 func TestParseTestOutput(t *testing.T) {
 	tests := []struct {
-		name       string
-		output     string
-		wantPass   int
-		wantFail   int
+		name     string
+		output   string
+		wantPass int
+		wantFail int
 	}{
 		{
 			name:     "empty output",
