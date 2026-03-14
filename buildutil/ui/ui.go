@@ -2,9 +2,13 @@ package ui
 
 import (
 	"os"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 )
+
+// ansiPattern matches all ANSI escape sequences.
+var ansiPattern = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\[\?[0-9;]*[a-zA-Z]`)
 
 var noColor bool
 
@@ -73,11 +77,8 @@ func VisualLength(text string) int {
 	return width
 }
 
-// StripANSI removes ANSI escape codes from text
+// StripANSI removes all ANSI escape sequences from text,
+// including color codes, cursor control, and line clearing sequences.
 func StripANSI(text string) string {
-	result := text
-	for _, code := range []string{Reset, Bold, Red, Green, Yellow, Cyan} {
-		result = strings.ReplaceAll(result, code, "")
-	}
-	return result
+	return ansiPattern.ReplaceAllString(text, "")
 }

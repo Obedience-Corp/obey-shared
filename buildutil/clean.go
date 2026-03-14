@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/Obedience-Corp/obey-shared/buildutil/ui"
 )
@@ -45,21 +44,22 @@ func doClean(cfg BuildConfig, verbose bool) error {
 	for i, pattern := range artifacts {
 		ui.Progress(i+1, total, fmt.Sprintf("Removing %s", pattern))
 
-		if strings.Contains(pattern, "*") {
-			cmd := exec.Command("sh", "-c", fmt.Sprintf("rm -rf %s 2>/dev/null || true", pattern))
-			if verbose {
-				cmd.Stdout = os.Stdout
-				cmd.Stderr = os.Stderr
+		if strings.ContainsAny(pattern, "*?[") {
+			// Use filepath.Glob for safe pattern expansion
+			matches, err := filepath.Glob(pattern)
+			if err != nil {
+				continue
 			}
-			_ = cmd.Run()
-			removed++
+			for _, match := range matches {
+				if err := os.RemoveAll(match); err == nil {
+					removed++
+				}
+			}
 		} else {
 			if err := os.RemoveAll(pattern); err == nil {
 				removed++
 			}
 		}
-
-		time.Sleep(50 * time.Millisecond)
 	}
 
 	ui.ClearProgress()
@@ -90,11 +90,13 @@ func doClean(cfg BuildConfig, verbose bool) error {
 		dockerCmd.Stderr = os.Stderr
 	}
 	if err := dockerCmd.Run(); err != nil {
+		ui.TaskFail()
 		if verbose {
 			fmt.Printf("Note: Docker cleanup skipped (docker not available)\n")
 		}
+	} else {
+		ui.TaskPass()
 	}
-	ui.TaskPass()
 
 	removeStatus := fmt.Sprintf("✓ %d items removed", removed)
 	cleanStatus := "✓ Complete"

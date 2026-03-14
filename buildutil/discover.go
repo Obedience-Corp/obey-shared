@@ -60,28 +60,33 @@ func getModuleName() string {
 }
 
 // discoverTestPackages finds all packages that have test files,
-// excluding integration test directories.
+// excluding integration test directories. Uses a single go list call
+// instead of per-package subprocess invocations.
 func discoverTestPackages() ([]string, error) {
-	packages, err := discoverPackages()
+	cmd := exec.Command("go", "list", "-f", `{{if .TestGoFiles}}{{.ImportPath}}{{end}}`, "./...")
+	output, err := cmd.Output()
 	if err != nil {
 		return nil, err
 	}
 
+	module := getModuleName()
 	var testPackages []string
 
-	for _, pkg := range packages {
-		if strings.Contains(pkg, "/tests/integration") {
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		if line == "" {
 			continue
 		}
-
-		cmd := exec.Command("go", "list", "-f", "{{.TestGoFiles}}", pkg)
-		output, err := cmd.Output()
-		if err != nil {
+		if strings.Contains(line, "/tests/integration") {
 			continue
 		}
-
-		if strings.TrimSpace(string(output)) != "[]" {
-			testPackages = append(testPackages, pkg)
+		// Convert to relative path
+		if module != "" && strings.HasPrefix(line, module) {
+			rel := strings.TrimPrefix(line, module)
+			if rel == "" {
+				testPackages = append(testPackages, ".")
+			} else if strings.HasPrefix(rel, "/") {
+				testPackages = append(testPackages, "."+rel)
+			}
 		}
 	}
 
