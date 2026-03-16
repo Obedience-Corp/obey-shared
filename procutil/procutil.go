@@ -1,18 +1,22 @@
-// Package procutil provides process group isolation for subprocess management.
-// It ensures child processes (especially interactive editors) are cleaned up
-// when the parent process exits, preventing orphaned processes that can
-// accumulate memory indefinitely.
+//go:build unix
+
 package procutil
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"os"
 	"os/exec"
 	"os/signal"
 	"syscall"
 	"time"
 )
+
+// killGracePeriod is the time between SIGTERM and SIGKILL escalation.
+const killGracePeriod = 3 * time.Second
+
+// ErrInterrupted indicates the process was terminated by an OS signal.
+var ErrInterrupted = errors.New("process interrupted by signal")
 
 // SetProcessGroup configures cmd to run in its own process group.
 // This ensures the child process can be killed as a group and does not
@@ -31,11 +35,14 @@ func SetProcessGroup(cmd *exec.Cmd) {
 //
 // For BubbleTea TUI contexts, use SetProcessGroup on the cmd before
 // passing it to tea.ExecProcess — BubbleTea manages the lifecycle.
+//
+// On signal interruption, the returned error wraps ErrInterrupted so callers
+// can check with errors.Is(err, procutil.ErrInterrupted).
 func RunWithCleanup(ctx context.Context, cmd *exec.Cmd) error {
 	SetProcessGroup(cmd)
 
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("starting process: %w", err)
+		return errors.New("starting process: " + err.Error())
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -50,19 +57,19 @@ func RunWithCleanup(ctx context.Context, cmd *exec.Cmd) error {
 		return err
 	case sig := <-sigCh:
 		cancelKill := killProcessGroup(cmd.Process.Pid)
-		<-done
+		waitErr := <-done
 		cancelKill()
-		return fmt.Errorf("interrupted by signal: %v", sig)
+		return errors.Join(ErrInterrupted, errors.New(sig.String()), waitErr)
 	case <-ctx.Done():
 		cancelKill := killProcessGroup(cmd.Process.Pid)
-		<-done
+		waitErr := <-done
 		cancelKill()
-		return ctx.Err()
+		return errors.Join(ctx.Err(), waitErr)
 	}
 }
 
-// killProcessGroup sends SIGTERM to the process group, then SIGKILL after a
-// grace period if the group is still alive. It returns a cancel func that
+// killProcessGroup sends SIGTERM to the process group, then SIGKILL after
+// killGracePeriod if the group is still alive. It returns a cancel func that
 // stops the escalation timer; callers must invoke it once Wait returns to
 // prevent a delayed SIGKILL from firing against a reused process group ID.
 func killProcessGroup(pid int) (cancel func()) {
@@ -71,8 +78,11 @@ func killProcessGroup(pid int) (cancel func()) {
 		// Process already exited; nothing to cancel.
 		return func() {}
 	}
-	_ = syscall.Kill(-pgid, syscall.SIGTERM)
-	t := time.AfterFunc(3*time.Second, func() {
+	if err := syscall.Kill(-pgid, syscall.SIGTERM); err != nil {
+		// Process group gone; no escalation needed.
+		return func() {}
+	}
+	t := time.AfterFunc(killGracePeriod, func() {
 		_ = syscall.Kill(-pgid, syscall.SIGKILL)
 	})
 	return func() { t.Stop() }
