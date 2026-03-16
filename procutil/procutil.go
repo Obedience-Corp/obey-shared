@@ -49,26 +49,31 @@ func RunWithCleanup(ctx context.Context, cmd *exec.Cmd) error {
 	case err := <-done:
 		return err
 	case sig := <-sigCh:
-		killProcessGroup(cmd.Process.Pid)
+		cancelKill := killProcessGroup(cmd.Process.Pid)
 		<-done
+		cancelKill()
 		return fmt.Errorf("interrupted by signal: %v", sig)
 	case <-ctx.Done():
-		killProcessGroup(cmd.Process.Pid)
+		cancelKill := killProcessGroup(cmd.Process.Pid)
 		<-done
+		cancelKill()
 		return ctx.Err()
 	}
 }
 
-// killProcessGroup sends SIGTERM to the process group, then SIGKILL
-// after a grace period if the group is still alive.
-func killProcessGroup(pid int) {
+// killProcessGroup sends SIGTERM to the process group, then SIGKILL after a
+// grace period if the group is still alive. It returns a cancel func that
+// stops the escalation timer; callers must invoke it once Wait returns to
+// prevent a delayed SIGKILL from firing against a reused process group ID.
+func killProcessGroup(pid int) (cancel func()) {
 	pgid, err := syscall.Getpgid(pid)
 	if err != nil {
-		// Process already exited.
-		return
+		// Process already exited; nothing to cancel.
+		return func() {}
 	}
 	_ = syscall.Kill(-pgid, syscall.SIGTERM)
-	time.AfterFunc(3*time.Second, func() {
+	t := time.AfterFunc(3*time.Second, func() {
 		_ = syscall.Kill(-pgid, syscall.SIGKILL)
 	})
+	return func() { t.Stop() }
 }
