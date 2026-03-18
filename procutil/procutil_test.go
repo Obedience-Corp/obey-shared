@@ -3,9 +3,12 @@
 package procutil
 
 import (
+	"bufio"
 	"context"
 	"errors"
+	"os"
 	"os/exec"
+	"os/signal"
 	"syscall"
 	"testing"
 	"time"
@@ -80,12 +83,17 @@ func TestRunWithCleanup_ContextCancellation(t *testing.T) {
 	}
 }
 
-func TestRunWithCleanup_StartFailure(t *testing.T) {
+func TestRunWithCleanup_StartFailurePreservesCause(t *testing.T) {
 	ctx := context.Background()
 	cmd := exec.Command("/nonexistent/binary/path")
 	err := RunWithCleanup(ctx, cmd)
 	if err == nil {
 		t.Fatal("expected error for nonexistent binary")
+	}
+
+	var pathErr *os.PathError
+	if !errors.As(err, &pathErr) {
+		t.Fatalf("expected wrapped *os.PathError, got: %v", err)
 	}
 }
 
@@ -93,5 +101,68 @@ func TestErrInterrupted_IsSentinel(t *testing.T) {
 	wrapped := errors.Join(ErrInterrupted, errors.New("SIGTERM"))
 	if !errors.Is(wrapped, ErrInterrupted) {
 		t.Fatal("should be detectable via errors.Is")
+	}
+}
+
+func TestHelperProcessIgnoresSIGTERM(t *testing.T) {
+	if os.Getenv("PROCUTIL_HELPER_IGNORE_TERM") != "1" {
+		return
+	}
+
+	signal.Ignore(syscall.SIGTERM)
+	_, _ = os.Stdout.WriteString("ready\n")
+	for {
+		time.Sleep(250 * time.Millisecond)
+	}
+}
+
+func TestKillProcessGroup_EscalatesToSIGKILL(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=TestHelperProcessIgnoresSIGTERM")
+	cmd.Env = append(os.Environ(), "PROCUTIL_HELPER_IGNORE_TERM=1")
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("StdoutPipe failed: %v", err)
+	}
+	SetProcessGroup(cmd)
+
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	ready, err := bufio.NewReader(stdout).ReadString('\n')
+	if err != nil {
+		t.Fatalf("failed waiting for helper readiness: %v", err)
+	}
+	if ready != "ready\n" {
+		t.Fatalf("unexpected helper readiness output: %q", ready)
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+
+	cancelKill := killProcessGroup(cmd.Process.Pid)
+	defer cancelKill()
+
+	select {
+	case err := <-done:
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			t.Fatalf("expected exit error after kill, got: %v", err)
+		}
+
+		status, ok := exitErr.Sys().(syscall.WaitStatus)
+		if !ok {
+			t.Fatalf("expected syscall.WaitStatus, got: %T", exitErr.Sys())
+		}
+		if !status.Signaled() {
+			t.Fatalf("expected signaled exit, got: %v", status)
+		}
+		if status.Signal() != syscall.SIGKILL {
+			t.Fatalf("expected SIGKILL escalation, got: %v", status.Signal())
+		}
+	case <-time.After(killGracePeriod + 5*time.Second):
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		<-done
+		t.Fatal("timed out waiting for SIGKILL escalation")
 	}
 }
