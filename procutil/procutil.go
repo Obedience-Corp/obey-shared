@@ -5,6 +5,7 @@ package procutil
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -42,7 +43,7 @@ func RunWithCleanup(ctx context.Context, cmd *exec.Cmd) error {
 	SetProcessGroup(cmd)
 
 	if err := cmd.Start(); err != nil {
-		return errors.New("starting process: " + err.Error())
+		return fmt.Errorf("starting process: %w", err)
 	}
 
 	sigCh := make(chan os.Signal, 1)
