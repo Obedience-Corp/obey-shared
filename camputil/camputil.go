@@ -40,9 +40,15 @@ func FindCampaignRoot(ctx context.Context, startDir string) (string, error) {
 
 	// Check for environment variable override.
 	if envRoot := os.Getenv(EnvCampaignRoot); envRoot != "" {
-		campaignPath := filepath.Join(envRoot, CampaignDir)
-		if info, err := os.Stat(campaignPath); err == nil && info.IsDir() {
-			return envRoot, nil
+		resolved, err := filepath.EvalSymlinks(envRoot)
+		if err == nil {
+			resolved, err = filepath.Abs(resolved)
+		}
+		if err == nil {
+			campaignPath := filepath.Join(resolved, CampaignDir)
+			if info, statErr := os.Stat(campaignPath); statErr == nil && info.IsDir() {
+				return resolved, nil
+			}
 		}
 		// If env var is set but invalid, continue with detection.
 	}

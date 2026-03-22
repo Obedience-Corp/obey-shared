@@ -81,6 +81,39 @@ func TestFindCampaignRoot_NestedSymlink(t *testing.T) {
 	}
 }
 
+func TestFindCampaignRoot_EnvVarCanonicalized(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink test not supported on Windows")
+	}
+
+	tmpDir := t.TempDir()
+	tmpDir, _ = filepath.EvalSymlinks(tmpDir)
+
+	// Create real campaign
+	realCampaign := filepath.Join(tmpDir, "real-campaign")
+	if err := os.MkdirAll(filepath.Join(realCampaign, CampaignDir), 0755); err != nil {
+		t.Fatalf("failed to create campaign: %v", err)
+	}
+
+	// Create symlink to campaign
+	symlinkPath := filepath.Join(tmpDir, "linked-campaign")
+	if err := os.Symlink(realCampaign, symlinkPath); err != nil {
+		t.Fatalf("failed to create symlink: %v", err)
+	}
+
+	// Set CAMP_ROOT to the symlink — returned path must be the resolved real path
+	t.Setenv(EnvCampaignRoot, symlinkPath)
+
+	got, err := FindCampaignRoot(context.Background(), tmpDir)
+	if err != nil {
+		t.Fatalf("FindCampaignRoot() error = %v", err)
+	}
+
+	if got != realCampaign {
+		t.Errorf("FindCampaignRoot() with symlinked CAMP_ROOT = %v, want %v (resolved path)", got, realCampaign)
+	}
+}
+
 func TestFindCampaignRoot_NonCanonicalPath(t *testing.T) {
 	// Create temp campaign
 	tmpDir := t.TempDir()
