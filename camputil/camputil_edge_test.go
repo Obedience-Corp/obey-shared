@@ -269,6 +269,47 @@ func TestFindCampaignRoot_InaccessibleStartDir(t *testing.T) {
 	}
 }
 
+func TestFindCampaignRoot_PermissionDeniedWalkUp(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permission test not reliable on Windows")
+	}
+
+	if os.Geteuid() == 0 {
+		t.Skip("test requires non-root user")
+	}
+
+	tmpDir := t.TempDir()
+	tmpDir, _ = filepath.EvalSymlinks(tmpDir)
+
+	campaignRoot := filepath.Join(tmpDir, "campaign")
+	restrictedDir := filepath.Join(campaignRoot, "projects", "restricted")
+
+	if err := os.MkdirAll(filepath.Join(campaignRoot, CampaignDir), 0755); err != nil {
+		t.Fatalf("failed to create campaign: %v", err)
+	}
+	if err := os.MkdirAll(restrictedDir, 0755); err != nil {
+		t.Fatalf("failed to create restricted dir: %v", err)
+	}
+
+	if err := os.Chmod(restrictedDir, 0o000); err != nil {
+		t.Fatalf("failed to chmod restricted dir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chmod(restrictedDir, 0o755)
+	})
+
+	// EvalSymlinks can still canonicalize the starting directory itself here,
+	// but statting restricted/.campaign returns permission denied. Detection
+	// should skip that level and continue walking upward to the campaign root.
+	got, err := FindCampaignRoot(context.Background(), restrictedDir)
+	if err != nil {
+		t.Fatalf("FindCampaignRoot() error = %v", err)
+	}
+	if got != campaignRoot {
+		t.Fatalf("FindCampaignRoot() = %v, want %v", got, campaignRoot)
+	}
+}
+
 func BenchmarkFindWithTimeout(b *testing.B) {
 	tmpDir := b.TempDir()
 	campaignRoot := filepath.Join(tmpDir, "campaign")
