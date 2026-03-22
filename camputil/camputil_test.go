@@ -17,6 +17,7 @@ func TestFindCampaignRoot(t *testing.T) {
 	campaignRoot := filepath.Join(tmpDir, "my-campaign")
 	campaignDir := filepath.Join(campaignRoot, CampaignDir)
 	nestedDir := filepath.Join(campaignRoot, "projects", "foo", "bar")
+	invalidEnvRoot := filepath.Join(tmpDir, "not-a-campaign")
 
 	// Create directories
 	if err := os.MkdirAll(campaignDir, 0755); err != nil {
@@ -24,6 +25,9 @@ func TestFindCampaignRoot(t *testing.T) {
 	}
 	if err := os.MkdirAll(nestedDir, 0755); err != nil {
 		t.Fatalf("failed to create nested dir: %v", err)
+	}
+	if err := os.MkdirAll(invalidEnvRoot, 0755); err != nil {
+		t.Fatalf("failed to create invalid env dir: %v", err)
 	}
 
 	ctx := context.Background()
@@ -60,6 +64,13 @@ func TestFindCampaignRoot(t *testing.T) {
 			name:     "env var override",
 			startDir: tmpDir, // would fail without env var
 			setupEnv: campaignRoot,
+			want:     campaignRoot,
+			cleanEnv: true,
+		},
+		{
+			name:     "invalid env var falls back to detection",
+			startDir: nestedDir,
+			setupEnv: invalidEnvRoot,
 			want:     campaignRoot,
 			cleanEnv: true,
 		},

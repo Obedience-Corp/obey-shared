@@ -31,7 +31,8 @@ var ErrNotInCampaign = errors.New("not inside a campaign directory\n" +
 // FindCampaignRoot locates the campaign root by walking up from startDir.
 // Returns the directory containing .campaign/, not .campaign/ itself.
 // If startDir is empty, uses the current working directory.
-// If CAMP_ROOT environment variable is set, uses that instead of detection.
+// If CAMP_ROOT is set and points to a valid campaign root, it is returned.
+// If CAMP_ROOT is set but invalid, detection falls back to walk-up search.
 func FindCampaignRoot(ctx context.Context, startDir string) (string, error) {
 	if ctx.Err() != nil {
 		return "", ctx.Err()
@@ -93,17 +94,19 @@ func FindCampaignRoot(ctx context.Context, startDir string) (string, error) {
 	}
 }
 
-// FindWithTimeout detects campaign root with a timeout.
+// FindWithTimeout detects campaign root with a timeout using a background context.
 // If the filesystem is slow (e.g., network drives), detection will
 // be aborted after the default timeout to prevent hanging.
+// Callers with an existing context should use FindCampaignRoot directly.
 func FindWithTimeout(startDir string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultDetectTimeout)
 	defer cancel()
 	return FindCampaignRoot(ctx, startDir)
 }
 
-// FindFromCwdWithTimeout is a convenience function that detects from current
-// working directory with a timeout.
+// FindFromCwdWithTimeout detects from the current working directory with a timeout
+// using a background context. Callers with an existing context should use
+// FindCampaignRoot or FindFromCwd directly.
 func FindFromCwdWithTimeout() (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultDetectTimeout)
 	defer cancel()

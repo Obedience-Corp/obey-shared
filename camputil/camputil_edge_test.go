@@ -196,7 +196,7 @@ func TestFindCampaignRoot_TimeoutExceeded(t *testing.T) {
 	}
 }
 
-func TestFindCampaignRoot_PermissionDenied(t *testing.T) {
+func TestFindCampaignRoot_InaccessibleStartDir(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("permission test not reliable on Windows")
 	}
@@ -209,7 +209,7 @@ func TestFindCampaignRoot_PermissionDenied(t *testing.T) {
 	tmpDir := t.TempDir()
 	tmpDir, _ = filepath.EvalSymlinks(tmpDir)
 
-	// Create campaign with restricted parent
+	// Create campaign with a nested path that becomes inaccessible before detection.
 	campaignRoot := filepath.Join(tmpDir, "campaign")
 	restrictedDir := filepath.Join(campaignRoot, "restricted")
 	nestedDir := filepath.Join(restrictedDir, "nested")
@@ -221,16 +221,18 @@ func TestFindCampaignRoot_PermissionDenied(t *testing.T) {
 		t.Fatalf("failed to create nested dir: %v", err)
 	}
 
-	ctx := context.Background()
-
-	// Detection from accessible nested directory should still work
-	got, err := FindCampaignRoot(ctx, nestedDir)
-	if err != nil {
-		t.Fatalf("FindCampaignRoot() error = %v", err)
+	if err := os.Chmod(restrictedDir, 0o000); err != nil {
+		t.Fatalf("failed to chmod restricted dir: %v", err)
 	}
+	t.Cleanup(func() {
+		_ = os.Chmod(restrictedDir, 0o755)
+	})
 
-	if got != campaignRoot {
-		t.Errorf("FindCampaignRoot() = %v, want %v", got, campaignRoot)
+	// FindCampaignRoot resolves startDir before walking up, so an unreadable start
+	// path must surface a permission error instead of falling back past it.
+	_, err := FindCampaignRoot(context.Background(), nestedDir)
+	if !os.IsPermission(err) {
+		t.Fatalf("FindCampaignRoot() error = %v, want permission denied", err)
 	}
 }
 
