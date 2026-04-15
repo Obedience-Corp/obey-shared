@@ -261,11 +261,15 @@ func TestFindCampaignRoot_InaccessibleStartDir(t *testing.T) {
 		_ = os.Chmod(restrictedDir, 0o755)
 	})
 
-	// FindCampaignRoot resolves startDir before walking up, so an unreadable start
-	// path must surface a permission error instead of falling back past it.
-	_, err := FindCampaignRoot(context.Background(), nestedDir)
-	if !os.IsPermission(err) {
-		t.Fatalf("FindCampaignRoot() error = %v, want permission denied", err)
+	// The shared detector now matches camp's logical-path-first walk. Permission
+	// failures at an intermediate level should not block discovery of a campaign
+	// root higher in the tree.
+	got, err := FindCampaignRoot(context.Background(), nestedDir)
+	if err != nil {
+		t.Fatalf("FindCampaignRoot() error = %v", err)
+	}
+	if got != campaignRoot {
+		t.Fatalf("FindCampaignRoot() = %v, want %v", got, campaignRoot)
 	}
 }
 

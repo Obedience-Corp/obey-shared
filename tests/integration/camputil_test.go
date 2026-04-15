@@ -75,16 +75,16 @@ func TestDetect_EnvVarOverride(t *testing.T) {
 		t.Fatalf("create cwd-campaign: %v", err)
 	}
 
-	// With CAMP_ROOT set, it should override cwd-based detection.
+	// With CAMP_ROOT set, the actual shared detector should override cwd-based detection.
 	output, exitCode, err := tc.ExecShell(
 		"export CAMP_ROOT=/campaigns/env-target && " +
 			"cd /campaigns/cwd-campaign && " +
-			"if [ -d \"$CAMP_ROOT/.campaign\" ]; then echo \"$CAMP_ROOT\"; else echo 'INVALID'; fi")
+			"/camputilprobe")
 	if err != nil {
 		t.Fatalf("exec: %v", err)
 	}
 	if exitCode != 0 {
-		t.Fatalf("env var check failed: exit %d", exitCode)
+		t.Fatalf("env var override failed: exit %d, output: %s", exitCode, output)
 	}
 
 	got := strings.TrimSpace(output)
@@ -101,16 +101,11 @@ func TestDetect_InvalidEnvVarFallsBack(t *testing.T) {
 		t.Fatalf("create campaign: %v", err)
 	}
 
-	// When CAMP_ROOT points to invalid dir, detection should fall back to walk-up.
+	// When CAMP_ROOT points to an invalid dir, the shared detector should fall back to walk-up.
 	output, exitCode, err := tc.ExecShell(
 		"export CAMP_ROOT=/nonexistent/path && " +
 			"cd /campaigns/fallback && " +
-			"if [ ! -d \"$CAMP_ROOT/.campaign\" ]; then " +
-			"  dir=$(pwd); while [ \"$dir\" != / ]; do " +
-			"    if [ -d \"$dir/.campaign\" ]; then echo \"$dir\"; exit 0; fi; " +
-			"    dir=$(dirname \"$dir\"); " +
-			"  done; echo 'NOT_FOUND'; exit 1; " +
-			"fi")
+			"/camputilprobe")
 	if err != nil {
 		t.Fatalf("exec: %v", err)
 	}
@@ -121,6 +116,72 @@ func TestDetect_InvalidEnvVarFallsBack(t *testing.T) {
 	got := strings.TrimSpace(output)
 	if got != "/campaigns/fallback" {
 		t.Errorf("fallback returned %q, want /campaigns/fallback", got)
+	}
+}
+
+func TestDetect_LinkedMarkerRegistryLookup(t *testing.T) {
+	tc := GetSharedContainer(t)
+
+	if err := tc.CreateCampaign("/campaigns/linked-target"); err != nil {
+		t.Fatalf("create campaign: %v", err)
+	}
+	if err := tc.MkdirAll("/test/linked-workspace/src/pkg"); err != nil {
+		t.Fatalf("create linked workspace: %v", err)
+	}
+	if err := tc.WriteFile(
+		"/root/.obey/campaign/registry.json",
+		"{\n  \"version\": 2,\n  \"campaigns\": {\n    \"linked-campaign-id\": {\n      \"path\": \"/campaigns/linked-target\"\n    }\n  }\n}\n",
+	); err != nil {
+		t.Fatalf("write registry: %v", err)
+	}
+	if err := tc.WriteFile(
+		"/test/linked-workspace/.camp",
+		"{\n  \"version\": 2,\n  \"active_campaign_id\": \"linked-campaign-id\"\n}\n",
+	); err != nil {
+		t.Fatalf("write marker: %v", err)
+	}
+
+	output, exitCode, err := tc.ExecShell("cd /test/linked-workspace/src/pkg && /camputilprobe")
+	if err != nil {
+		t.Fatalf("exec: %v", err)
+	}
+	if exitCode != 0 {
+		t.Fatalf("linked marker detection failed: exit %d, output: %s", exitCode, output)
+	}
+
+	got := strings.TrimSpace(output)
+	if got != "/campaigns/linked-target" {
+		t.Errorf("linked marker detection returned %q, want /campaigns/linked-target", got)
+	}
+}
+
+func TestDetect_LegacyLinkedMarkerCampaignRootFallback(t *testing.T) {
+	tc := GetSharedContainer(t)
+
+	if err := tc.CreateCampaign("/campaigns/legacy-target"); err != nil {
+		t.Fatalf("create campaign: %v", err)
+	}
+	if err := tc.MkdirAll("/test/legacy-workspace/nested"); err != nil {
+		t.Fatalf("create linked workspace: %v", err)
+	}
+	if err := tc.WriteFile(
+		"/test/legacy-workspace/.camp",
+		"{\n  \"version\": 1,\n  \"campaign_root\": \"/campaigns/legacy-target\",\n  \"project_name\": \"legacy-workspace\"\n}\n",
+	); err != nil {
+		t.Fatalf("write marker: %v", err)
+	}
+
+	output, exitCode, err := tc.ExecShell("cd /test/legacy-workspace/nested && /camputilprobe")
+	if err != nil {
+		t.Fatalf("exec: %v", err)
+	}
+	if exitCode != 0 {
+		t.Fatalf("legacy marker detection failed: exit %d, output: %s", exitCode, output)
+	}
+
+	got := strings.TrimSpace(output)
+	if got != "/campaigns/legacy-target" {
+		t.Errorf("legacy marker detection returned %q, want /campaigns/legacy-target", got)
 	}
 }
 

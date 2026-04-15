@@ -33,24 +33,15 @@ var ErrNotInCampaign = errors.New("not inside a campaign directory\n" +
 // If startDir is empty, uses the current working directory.
 // If CAMP_ROOT is set and points to a valid campaign root, it is returned.
 // If CAMP_ROOT is set but invalid, detection falls back to walk-up search.
+// Linked project directories are also supported through `.camp` markers that
+// resolve back to registered campaign roots.
 func FindCampaignRoot(ctx context.Context, startDir string) (string, error) {
 	if ctx.Err() != nil {
 		return "", ctx.Err()
 	}
 
-	// Check for environment variable override.
-	if envRoot := os.Getenv(EnvCampaignRoot); envRoot != "" {
-		resolved, err := filepath.EvalSymlinks(envRoot)
-		if err == nil {
-			resolved, err = filepath.Abs(resolved)
-		}
-		if err == nil {
-			campaignPath := filepath.Join(resolved, CampaignDir)
-			if info, statErr := os.Stat(campaignPath); statErr == nil && info.IsDir() {
-				return resolved, nil
-			}
-		}
-		// If env var is set but invalid, continue with detection.
+	if envRoot, ok := detectCampaignRootOverride(); ok {
+		return envRoot, nil
 	}
 
 	// Start from given directory or cwd.
@@ -63,17 +54,52 @@ func FindCampaignRoot(ctx context.Context, startDir string) (string, error) {
 		}
 	}
 
-	// Resolve to absolute path and follow symlinks.
-	dir, err := filepath.EvalSymlinks(dir)
-	if err != nil {
-		return "", err
-	}
+	var err error
 	dir, err = filepath.Abs(dir)
 	if err != nil {
 		return "", err
 	}
 
-	// Walk up directory tree.
+	if root, err := detectCampaignByWalking(ctx, dir); err == nil {
+		return root, nil
+	} else if !errors.Is(err, ErrNotInCampaign) {
+		return "", err
+	}
+
+	realDir, err := filepath.EvalSymlinks(dir)
+	if err == nil && realDir != dir {
+		if root, walkErr := detectCampaignByWalking(ctx, realDir); walkErr == nil {
+			return root, nil
+		} else if !errors.Is(walkErr, ErrNotInCampaign) {
+			return "", walkErr
+		}
+	}
+
+	return "", ErrNotInCampaign
+}
+
+func detectCampaignRootOverride() (string, bool) {
+	envRoot := os.Getenv(EnvCampaignRoot)
+	if envRoot == "" {
+		return "", false
+	}
+
+	if absRoot, err := filepath.Abs(envRoot); err == nil {
+		envRoot = absRoot
+	}
+	if resolvedRoot, err := filepath.EvalSymlinks(envRoot); err == nil {
+		envRoot = resolvedRoot
+	}
+	if !IsCampaignRoot(envRoot) {
+		return "", false
+	}
+
+	return envRoot, true
+}
+
+func detectCampaignByWalking(ctx context.Context, startDir string) (string, error) {
+	dir := startDir
+
 	for {
 		if ctx.Err() != nil {
 			return "", ctx.Err()
@@ -82,7 +108,20 @@ func FindCampaignRoot(ctx context.Context, startDir string) (string, error) {
 		campaignPath := filepath.Join(dir, CampaignDir)
 		info, err := os.Stat(campaignPath)
 		if err == nil && info.IsDir() {
+			if resolved, resolveErr := filepath.EvalSymlinks(dir); resolveErr == nil {
+				return resolved, nil
+			}
 			return dir, nil
+		}
+
+		markerPath := filepath.Join(dir, linkMarkerFile)
+		marker, markerErr := readLinkMarkerFile(markerPath)
+		if markerErr == nil {
+			if root, ok, resolveErr := resolveMarkerCampaignRoot(ctx, marker); resolveErr != nil {
+				return "", resolveErr
+			} else if ok {
+				return root, nil
+			}
 		}
 
 		// Handle permission errors gracefully — just keep walking up.
@@ -98,6 +137,38 @@ func FindCampaignRoot(ctx context.Context, startDir string) (string, error) {
 		}
 		dir = parent
 	}
+}
+
+func resolveMarkerCampaignRoot(ctx context.Context, marker *linkMarker) (string, bool, error) {
+	if marker == nil {
+		return "", false, nil
+	}
+
+	if activeID := marker.effectiveCampaignID(); activeID != "" {
+		root, found, err := lookupRegisteredCampaignRoot(ctx, activeID)
+		if err != nil {
+			return "", false, err
+		}
+		if found && IsCampaignRoot(root) {
+			return root, true, nil
+		}
+	}
+
+	// Legacy fallback for pre-v2 markers that persisted campaign roots.
+	if marker.CampaignRoot != "" {
+		root, err := filepath.Abs(marker.CampaignRoot)
+		if err != nil {
+			return "", false, err
+		}
+		if resolved, err := filepath.EvalSymlinks(root); err == nil {
+			root = resolved
+		}
+		if IsCampaignRoot(root) {
+			return root, true, nil
+		}
+	}
+
+	return "", false, nil
 }
 
 // FindWithTimeout detects campaign root with a timeout using a background context.
