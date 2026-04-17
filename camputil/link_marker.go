@@ -90,7 +90,10 @@ func lookupRegisteredCampaignRoot(ctx context.Context, campaignID string) (strin
 
 	var snapshot registrySnapshot
 	if err := json.Unmarshal(data, &snapshot); err != nil {
-		return "", false, err
+		// Registry lookup is best-effort during detection. A corrupted registry
+		// should not block linked project detection from falling back to legacy
+		// marker roots or higher-level walk-up detection.
+		return "", false, nil
 	}
 
 	entry, ok := snapshot.Campaigns[campaignID]

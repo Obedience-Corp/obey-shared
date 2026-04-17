@@ -185,6 +185,42 @@ func TestDetect_LegacyLinkedMarkerCampaignRootFallback(t *testing.T) {
 	}
 }
 
+func TestDetect_LegacyLinkedMarkerFallbackWhenRegistryCorrupt(t *testing.T) {
+	tc := GetSharedContainer(t)
+
+	if err := tc.CreateCampaign("/campaigns/legacy-target"); err != nil {
+		t.Fatalf("create campaign: %v", err)
+	}
+	if err := tc.MkdirAll("/test/legacy-workspace/nested"); err != nil {
+		t.Fatalf("create linked workspace: %v", err)
+	}
+	if err := tc.WriteFile(
+		"/root/.obey/campaign/registry.json",
+		"{invalid json",
+	); err != nil {
+		t.Fatalf("write registry: %v", err)
+	}
+	if err := tc.WriteFile(
+		"/test/legacy-workspace/.camp",
+		"{\n  \"version\": 1,\n  \"campaign_id\": \"legacy-campaign-id\",\n  \"campaign_root\": \"/campaigns/legacy-target\",\n  \"project_name\": \"legacy-workspace\"\n}\n",
+	); err != nil {
+		t.Fatalf("write marker: %v", err)
+	}
+
+	output, exitCode, err := tc.ExecShell("cd /test/legacy-workspace/nested && /camputilprobe")
+	if err != nil {
+		t.Fatalf("exec: %v", err)
+	}
+	if exitCode != 0 {
+		t.Fatalf("legacy marker fallback with corrupt registry failed: exit %d, output: %s", exitCode, output)
+	}
+
+	got := strings.TrimSpace(output)
+	if got != "/campaigns/legacy-target" {
+		t.Errorf("legacy marker fallback with corrupt registry returned %q, want /campaigns/legacy-target", got)
+	}
+}
+
 func TestDetect_SymlinkResolution(t *testing.T) {
 	tc := GetSharedContainer(t)
 
