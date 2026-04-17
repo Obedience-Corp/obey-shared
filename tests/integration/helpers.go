@@ -9,7 +9,10 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -54,6 +57,12 @@ type TestContainer struct {
 func NewSharedContainer() (*TestContainer, error) {
 	ctx := context.Background()
 
+	probeBinary, err := buildCamputilProbeBinaryShared()
+	if err != nil {
+		return nil, fmt.Errorf("failed to build camputil probe: %w", err)
+	}
+	defer os.RemoveAll(filepath.Dir(probeBinary))
+
 	req := testcontainers.ContainerRequest{
 		Image:      "alpine:latest",
 		Cmd:        []string{"sleep", "3600"},
@@ -69,6 +78,11 @@ func NewSharedContainer() (*TestContainer, error) {
 		return nil, fmt.Errorf("failed to start container: %w", err)
 	}
 
+	if err := container.CopyFileToContainer(ctx, probeBinary, "/camputilprobe", 0o755); err != nil {
+		container.Terminate(ctx)
+		return nil, fmt.Errorf("failed to copy probe binary into container: %w", err)
+	}
+
 	// Create initial working directories
 	exitCode, _, err := container.Exec(ctx, []string{"mkdir", "-p", "/test", "/campaigns"})
 	if err != nil || exitCode != 0 {
@@ -81,6 +95,48 @@ func NewSharedContainer() (*TestContainer, error) {
 		ctx:       ctx,
 		t:         nil,
 	}, nil
+}
+
+func buildCamputilProbeBinaryShared() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get working directory: %w", err)
+	}
+
+	projectRoot := filepath.Join(cwd, "../..")
+	projectRoot, err = filepath.Abs(projectRoot)
+	if err != nil {
+		return "", fmt.Errorf("failed to get absolute path: %w", err)
+	}
+
+	binDir, err := os.MkdirTemp("", "camputilprobe-*")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temporary probe directory: %w", err)
+	}
+
+	binaryPath := filepath.Join(binDir, "camputilprobe")
+	cmd := fmt.Sprintf(
+		"cd %s && GOOS=linux GOARCH=%s go build -o %s ./tests/integration/cmd/camputilprobe",
+		projectRoot,
+		runtime.GOARCH,
+		binaryPath,
+	)
+	if err := runCommand(cmd); err != nil {
+		return "", fmt.Errorf("failed to build probe binary: %w", err)
+	}
+
+	return binaryPath, nil
+}
+
+func runCommand(cmd string) error {
+	if cmd == "" {
+		return fmt.Errorf("empty command")
+	}
+
+	c := exec.Command("sh", "-c", cmd)
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+	return c.Run()
 }
 
 // Reset clears container state between tests.
@@ -167,4 +223,20 @@ func (tc *TestContainer) ReadSymlink(path string) (string, error) {
 		return "", fmt.Errorf("failed to readlink %s: %w", path, err)
 	}
 	return strings.TrimSpace(output), nil
+}
+
+// WriteFile writes content into a file in the container, creating parent dirs.
+func (tc *TestContainer) WriteFile(path, content string) error {
+	parent := filepath.Dir(path)
+	if err := tc.MkdirAll(parent); err != nil {
+		return err
+	}
+
+	quoted := strings.ReplaceAll(content, "'", "'\"'\"'")
+	_, exitCode, err := tc.ExecShell(fmt.Sprintf("printf '%%s' '%s' > %s", quoted, path))
+	if err != nil || exitCode != 0 {
+		return fmt.Errorf("failed to write file %s: %w", path, err)
+	}
+
+	return nil
 }
