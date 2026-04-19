@@ -12,6 +12,7 @@ import (
 
 var defaultCleanPatterns = []string{
 	"bin/",
+	"coverage/",
 	"*.test",
 	"*.exe",
 	"coverage.out",
