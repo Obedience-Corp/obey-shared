@@ -2,13 +2,14 @@ package contract
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
+
+	"github.com/Obedience-Corp/obey-shared/camputil"
 )
 
 func TestRoundTrip(t *testing.T) {
 	dir := resolvePath(t, t.TempDir())
-	path := filepath.Join(dir, ".campaign", "watchers.yaml")
+	path := camputil.CampaignMetadataSubPath(dir, ContractFileName)
 
 	entries := []Entry{
 		{
@@ -74,7 +75,7 @@ func TestRoundTrip(t *testing.T) {
 
 func TestMultiOwner(t *testing.T) {
 	dir := resolvePath(t, t.TempDir())
-	path := filepath.Join(dir, ".campaign", "watchers.yaml")
+	path := camputil.CampaignMetadataSubPath(dir, ContractFileName)
 
 	festEntries := []Entry{
 		validEntry("fest.lifecycle", OwnerFest),
@@ -114,7 +115,7 @@ func TestMultiOwner(t *testing.T) {
 
 func TestOverwriteSameOwner(t *testing.T) {
 	dir := resolvePath(t, t.TempDir())
-	path := filepath.Join(dir, ".campaign", "watchers.yaml")
+	path := camputil.CampaignMetadataSubPath(dir, ContractFileName)
 
 	campEntries := []Entry{
 		validEntry("camp.metadata", OwnerCamp),
@@ -168,7 +169,7 @@ func TestOverwriteSameOwner(t *testing.T) {
 
 func TestAtomicWriteSafety(t *testing.T) {
 	dir := resolvePath(t, t.TempDir())
-	path := filepath.Join(dir, ".campaign", "watchers.yaml")
+	path := camputil.CampaignMetadataSubPath(dir, ContractFileName)
 
 	original := []Entry{
 		validEntry("fest.original", OwnerFest),
@@ -251,7 +252,7 @@ func TestContractPathHelper(t *testing.T) {
 
 func TestReadWrittenYAMLFile(t *testing.T) {
 	dir := resolvePath(t, t.TempDir())
-	path := filepath.Join(dir, ".campaign", "watchers.yaml")
+	path := camputil.CampaignMetadataSubPath(dir, ContractFileName)
 
 	entries := []Entry{
 		{

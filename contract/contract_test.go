@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Obedience-Corp/obey-shared/camputil"
 )
 
 // resolvePath resolves symlinks in a path. Required on macOS where
@@ -267,7 +269,7 @@ func TestWriteEntries(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := resolvePath(t, t.TempDir())
-			path := filepath.Join(dir, ".campaign", "watchers.yaml")
+			path := camputil.CampaignMetadataSubPath(dir, ContractFileName)
 
 			if tt.setup != nil {
 				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
