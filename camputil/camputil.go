@@ -212,6 +212,11 @@ func CampaignMetadataPath(root string) string {
 // filepath.Join(root, CampaignMetadataDir, parts...), expressed as a single call so
 // consumers do not have to spell the nesting pattern at every call site.
 // Passing no parts returns the same value as CampaignMetadataPath(root).
+//
+// Parts are not validated: because this is a thin wrapper around filepath.Join,
+// sufficient ".." segments in parts can escape the .campaign/ directory (and even
+// the campaign root itself). Callers are responsible for ensuring no component
+// escapes the campaign boundary when parts originate from untrusted input.
 func CampaignMetadataSubPath(root string, parts ...string) string {
 	if len(parts) == 0 {
 		return CampaignMetadataPath(root)

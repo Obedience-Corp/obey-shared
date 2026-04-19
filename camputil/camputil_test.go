@@ -223,6 +223,16 @@ func TestCampaignMetadataSubPath(t *testing.T) {
 			parts: []string{"settings", "..", "chains"},
 			want:  filepath.Join("/foo/bar", CampaignMetadataDir, "chains"),
 		},
+		{
+			// Documents that parts are not validated: enough ".." segments
+			// escape the .campaign/ boundary entirely. This is intentional —
+			// the helper is a thin filepath.Join wrapper, and callers are
+			// responsible for boundary checks on untrusted input.
+			name:  "parts with enough .. can escape the campaign boundary",
+			root:  "/foo/bar",
+			parts: []string{"..", "..", "etc", "passwd"},
+			want:  filepath.Join("/foo", "etc", "passwd"),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
