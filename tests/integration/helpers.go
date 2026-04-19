@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Obedience-Corp/obey-shared/camputil"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -203,8 +204,7 @@ func (tc *TestContainer) CheckDirExists(path string) (bool, error) {
 
 // CreateCampaign creates a .campaign directory at the given path.
 func (tc *TestContainer) CreateCampaign(path string) error {
-	campaignDir := filepath.Join(path, ".campaign")
-	return tc.MkdirAll(campaignDir)
+	return tc.MkdirAll(camputil.CampaignMetadataPath(path))
 }
 
 // CreateSymlink creates a symlink in the container.

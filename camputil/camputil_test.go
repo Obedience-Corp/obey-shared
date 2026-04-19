@@ -15,7 +15,7 @@ func TestFindCampaignRoot(t *testing.T) {
 	tmpDir, _ = filepath.EvalSymlinks(tmpDir)
 
 	campaignRoot := filepath.Join(tmpDir, "my-campaign")
-	campaignDir := filepath.Join(campaignRoot, CampaignDir)
+	campaignDir := filepath.Join(campaignRoot, CampaignMetadataDir)
 	nestedDir := filepath.Join(campaignRoot, "projects", "foo", "bar")
 	invalidEnvRoot := filepath.Join(tmpDir, "not-a-campaign")
 
@@ -133,7 +133,7 @@ func TestFindFromCwd(t *testing.T) {
 	tmpDir, _ = filepath.EvalSymlinks(tmpDir)
 
 	campaignRoot := filepath.Join(tmpDir, "test-campaign")
-	campaignDir := filepath.Join(campaignRoot, CampaignDir)
+	campaignDir := filepath.Join(campaignRoot, CampaignMetadataDir)
 
 	if err := os.MkdirAll(campaignDir, 0755); err != nil {
 		t.Fatalf("failed to create campaign dir: %v", err)
@@ -165,7 +165,7 @@ func TestFindFromCwd(t *testing.T) {
 func TestIsCampaignRoot(t *testing.T) {
 	tmpDir := t.TempDir()
 	campaignRoot := filepath.Join(tmpDir, "campaign")
-	campaignDir := filepath.Join(campaignRoot, CampaignDir)
+	campaignDir := filepath.Join(campaignRoot, CampaignMetadataDir)
 
 	// Not a campaign yet
 	if err := os.MkdirAll(campaignRoot, 0755); err != nil {
@@ -184,18 +184,70 @@ func TestIsCampaignRoot(t *testing.T) {
 	}
 }
 
-func TestCampaignPath(t *testing.T) {
-	got := CampaignPath("/foo/bar")
-	want := filepath.Join("/foo/bar", CampaignDir)
+func TestCampaignMetadataPath(t *testing.T) {
+	got := CampaignMetadataPath("/foo/bar")
+	want := filepath.Join("/foo/bar", CampaignMetadataDir)
 	if got != want {
-		t.Errorf("CampaignPath() = %v, want %v", got, want)
+		t.Errorf("CampaignMetadataPath() = %v, want %v", got, want)
+	}
+}
+
+func TestCampaignMetadataSubPath(t *testing.T) {
+	tests := []struct {
+		name  string
+		root  string
+		parts []string
+		want  string
+	}{
+		{
+			name:  "no parts returns CampaignMetadataPath",
+			root:  "/foo/bar",
+			parts: nil,
+			want:  filepath.Join("/foo/bar", CampaignMetadataDir),
+		},
+		{
+			name:  "single part",
+			root:  "/foo/bar",
+			parts: []string{"skills"},
+			want:  filepath.Join("/foo/bar", CampaignMetadataDir, "skills"),
+		},
+		{
+			name:  "multiple parts",
+			root:  "/foo/bar",
+			parts: []string{"skills", "code-review", "SKILL.md"},
+			want:  filepath.Join("/foo/bar", CampaignMetadataDir, "skills", "code-review", "SKILL.md"),
+		},
+		{
+			name:  "cleans relative segments",
+			root:  "/foo/bar",
+			parts: []string{"settings", "..", "chains"},
+			want:  filepath.Join("/foo/bar", CampaignMetadataDir, "chains"),
+		},
+		{
+			// Documents that parts are not validated: enough ".." segments
+			// escape the .campaign/ boundary entirely. This is intentional —
+			// the helper is a thin filepath.Join wrapper, and callers are
+			// responsible for boundary checks on untrusted input.
+			name:  "parts with enough .. can escape the campaign boundary",
+			root:  "/foo/bar",
+			parts: []string{"..", "..", "etc", "passwd"},
+			want:  filepath.Join("/foo", "etc", "passwd"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := CampaignMetadataSubPath(tt.root, tt.parts...)
+			if got != tt.want {
+				t.Errorf("CampaignMetadataSubPath(%q, %v) = %q, want %q", tt.root, tt.parts, got, tt.want)
+			}
+		})
 	}
 }
 
 func BenchmarkFindCampaignRoot(b *testing.B) {
 	tmpDir := b.TempDir()
 	campaignRoot := filepath.Join(tmpDir, "campaign")
-	campaignDir := filepath.Join(campaignRoot, CampaignDir)
+	campaignDir := filepath.Join(campaignRoot, CampaignMetadataDir)
 	deepDir := filepath.Join(campaignRoot, "a", "b", "c", "d", "e", "f", "g", "h")
 
 	os.MkdirAll(campaignDir, 0755)

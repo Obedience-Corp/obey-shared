@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/Obedience-Corp/obey-shared/camputil"
 	"gopkg.in/yaml.v3"
 )
 
@@ -43,7 +44,7 @@ func Read(path string) (*Contract, error) {
 // ContractPath returns the standard path to the contract file within the given
 // campaign root directory. The contract file lives at .campaign/watchers.yaml.
 func ContractPath(campaignRoot string) string {
-	return filepath.Join(campaignRoot, ".campaign", ContractFileName)
+	return camputil.CampaignMetadataSubPath(campaignRoot, ContractFileName)
 }
 
 // WriteEntries performs an owner-scoped merge and atomic write of entries to the

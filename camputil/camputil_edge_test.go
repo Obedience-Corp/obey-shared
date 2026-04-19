@@ -20,7 +20,7 @@ func TestFindCampaignRoot_Symlink(t *testing.T) {
 
 	// Create real campaign
 	realCampaign := filepath.Join(tmpDir, "real-campaign")
-	if err := os.MkdirAll(filepath.Join(realCampaign, CampaignDir), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(realCampaign, CampaignMetadataDir), 0755); err != nil {
 		t.Fatalf("failed to create campaign: %v", err)
 	}
 
@@ -55,7 +55,7 @@ func TestFindCampaignRoot_NestedSymlink(t *testing.T) {
 	// Create real campaign with nested structure
 	realCampaign := filepath.Join(tmpDir, "real-campaign")
 	nestedDir := filepath.Join(realCampaign, "projects", "foo")
-	if err := os.MkdirAll(filepath.Join(realCampaign, CampaignDir), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(realCampaign, CampaignMetadataDir), 0755); err != nil {
 		t.Fatalf("failed to create campaign: %v", err)
 	}
 	if err := os.MkdirAll(nestedDir, 0755); err != nil {
@@ -91,7 +91,7 @@ func TestFindCampaignRoot_EnvVarCanonicalized(t *testing.T) {
 
 	// Create real campaign
 	realCampaign := filepath.Join(tmpDir, "real-campaign")
-	if err := os.MkdirAll(filepath.Join(realCampaign, CampaignDir), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(realCampaign, CampaignMetadataDir), 0755); err != nil {
 		t.Fatalf("failed to create campaign: %v", err)
 	}
 
@@ -120,7 +120,7 @@ func TestFindCampaignRoot_NonCanonicalPath(t *testing.T) {
 	tmpDir, _ = filepath.EvalSymlinks(tmpDir)
 
 	campaignRoot := filepath.Join(tmpDir, "campaign")
-	if err := os.MkdirAll(filepath.Join(campaignRoot, CampaignDir), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(campaignRoot, CampaignMetadataDir), 0755); err != nil {
 		t.Fatalf("failed to create campaign: %v", err)
 	}
 
@@ -146,7 +146,7 @@ func TestFindCampaignRoot_PathWithDot(t *testing.T) {
 	tmpDir, _ = filepath.EvalSymlinks(tmpDir)
 
 	campaignRoot := filepath.Join(tmpDir, "campaign")
-	if err := os.MkdirAll(filepath.Join(campaignRoot, CampaignDir), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(campaignRoot, CampaignMetadataDir), 0755); err != nil {
 		t.Fatalf("failed to create campaign: %v", err)
 	}
 
@@ -172,7 +172,7 @@ func TestFindWithTimeout(t *testing.T) {
 	tmpDir, _ = filepath.EvalSymlinks(tmpDir)
 
 	campaignRoot := filepath.Join(tmpDir, "campaign")
-	if err := os.MkdirAll(filepath.Join(campaignRoot, CampaignDir), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(campaignRoot, CampaignMetadataDir), 0755); err != nil {
 		t.Fatalf("failed to create campaign: %v", err)
 	}
 
@@ -192,7 +192,7 @@ func TestFindFromCwdWithTimeout(t *testing.T) {
 	tmpDir, _ = filepath.EvalSymlinks(tmpDir)
 
 	campaignRoot := filepath.Join(tmpDir, "campaign")
-	if err := os.MkdirAll(filepath.Join(campaignRoot, CampaignDir), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(campaignRoot, CampaignMetadataDir), 0755); err != nil {
 		t.Fatalf("failed to create campaign: %v", err)
 	}
 
@@ -247,7 +247,7 @@ func TestFindCampaignRoot_InaccessibleStartDir(t *testing.T) {
 	restrictedDir := filepath.Join(campaignRoot, "restricted")
 	nestedDir := filepath.Join(restrictedDir, "nested")
 
-	if err := os.MkdirAll(filepath.Join(campaignRoot, CampaignDir), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(campaignRoot, CampaignMetadataDir), 0755); err != nil {
 		t.Fatalf("failed to create campaign: %v", err)
 	}
 	if err := os.MkdirAll(nestedDir, 0755); err != nil {
@@ -288,7 +288,7 @@ func TestFindCampaignRoot_PermissionDeniedWalkUp(t *testing.T) {
 	campaignRoot := filepath.Join(tmpDir, "campaign")
 	restrictedDir := filepath.Join(campaignRoot, "projects", "restricted")
 
-	if err := os.MkdirAll(filepath.Join(campaignRoot, CampaignDir), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(campaignRoot, CampaignMetadataDir), 0755); err != nil {
 		t.Fatalf("failed to create campaign: %v", err)
 	}
 	if err := os.MkdirAll(restrictedDir, 0755); err != nil {
@@ -317,7 +317,7 @@ func TestFindCampaignRoot_PermissionDeniedWalkUp(t *testing.T) {
 func BenchmarkFindWithTimeout(b *testing.B) {
 	tmpDir := b.TempDir()
 	campaignRoot := filepath.Join(tmpDir, "campaign")
-	campaignDir := filepath.Join(campaignRoot, CampaignDir)
+	campaignDir := filepath.Join(campaignRoot, CampaignMetadataDir)
 	deepDir := filepath.Join(campaignRoot, "a", "b", "c", "d", "e")
 
 	os.MkdirAll(campaignDir, 0755)

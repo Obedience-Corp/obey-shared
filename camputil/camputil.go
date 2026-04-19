@@ -14,8 +14,8 @@ import (
 const DefaultDetectTimeout = 5 * time.Second
 
 const (
-	// CampaignDir is the marker directory that identifies a campaign root.
-	CampaignDir = ".campaign"
+	// CampaignMetadataDir is the marker directory that identifies a campaign root.
+	CampaignMetadataDir = ".campaign"
 
 	// CampaignConfigFile is the name of the campaign configuration file.
 	CampaignConfigFile = "campaign.yaml"
@@ -105,7 +105,7 @@ func detectCampaignByWalking(ctx context.Context, startDir string) (string, erro
 			return "", ctx.Err()
 		}
 
-		campaignPath := filepath.Join(dir, CampaignDir)
+		campaignPath := filepath.Join(dir, CampaignMetadataDir)
 		info, err := os.Stat(campaignPath)
 		if err == nil && info.IsDir() {
 			if resolved, resolveErr := filepath.EvalSymlinks(dir); resolveErr == nil {
@@ -197,12 +197,29 @@ func FindFromCwd(ctx context.Context) (string, error) {
 
 // IsCampaignRoot checks if the given directory is a campaign root (contains .campaign/).
 func IsCampaignRoot(dir string) bool {
-	campaignPath := filepath.Join(dir, CampaignDir)
+	campaignPath := filepath.Join(dir, CampaignMetadataDir)
 	info, err := os.Stat(campaignPath)
 	return err == nil && info.IsDir()
 }
 
-// CampaignPath returns the path to the .campaign/ directory for a given root.
-func CampaignPath(root string) string {
-	return filepath.Join(root, CampaignDir)
+// CampaignMetadataPath returns the path to the .campaign/ directory for a given root.
+func CampaignMetadataPath(root string) string {
+	return filepath.Join(root, CampaignMetadataDir)
+}
+
+// CampaignMetadataSubPath returns the path to a file or directory nested under the
+// .campaign/ directory of the given root. It is equivalent to
+// filepath.Join(root, CampaignMetadataDir, parts...), expressed as a single call so
+// consumers do not have to spell the nesting pattern at every call site.
+// Passing no parts returns the same value as CampaignMetadataPath(root).
+//
+// Parts are not validated: because this is a thin wrapper around filepath.Join,
+// sufficient ".." segments in parts can escape the .campaign/ directory (and even
+// the campaign root itself). Callers are responsible for ensuring no component
+// escapes the campaign boundary when parts originate from untrusted input.
+func CampaignMetadataSubPath(root string, parts ...string) string {
+	if len(parts) == 0 {
+		return CampaignMetadataPath(root)
+	}
+	return filepath.Join(append([]string{root, CampaignMetadataDir}, parts...)...)
 }
