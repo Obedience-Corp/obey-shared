@@ -48,6 +48,13 @@ type BuildConfig struct {
 	CleanPatterns []string
 }
 
+// IsLibrary reports whether this config describes a library project
+// (no binary to build). Library mode enables lint/test/coverage/clean/all
+// but rejects build, build-only, and integration commands.
+func (c BuildConfig) IsLibrary() bool {
+	return c.BinaryName == "" && c.MainPath == ""
+}
+
 // Run is the main entry point. Pass os.Args[1:] and a BuildConfig.
 func Run(args []string, cfg BuildConfig) {
 	fs := flag.NewFlagSet("buildutil", flag.ExitOnError)
@@ -59,13 +66,26 @@ func Run(args []string, cfg BuildConfig) {
 
 	ui.Init(noColor)
 
+	usage := "usage: buildutil <build|build-only|test|integration|lint|coverage|clean|all>\n"
+	if cfg.IsLibrary() {
+		usage = "usage: buildutil <test|lint|coverage|clean|all>\n"
+	}
+
 	if fs.NArg() == 0 {
-		fmt.Fprintf(os.Stderr, "usage: buildutil <build|build-only|test|integration|clean|all>\n")
+		fmt.Fprint(os.Stderr, usage)
 		os.Exit(1)
 	}
 
 	cmd := fs.Arg(0)
 	startTime := time.Now()
+
+	if cfg.IsLibrary() {
+		switch cmd {
+		case "build", "build-only", "integration":
+			fmt.Fprintf(os.Stderr, "%q is not available in library mode (BinaryName/MainPath unset)\n", cmd)
+			os.Exit(1)
+		}
+	}
 
 	if ui.ColourEnabled() {
 		fmt.Print(ui.HideCursor)
@@ -83,10 +103,18 @@ func Run(args []string, cfg BuildConfig) {
 		err = doTest(cfg, verbose)
 	case "integration":
 		err = doIntegration(cfg, verbose)
+	case "lint":
+		err = doLint(cfg, verbose)
+	case "coverage":
+		err = doCoverage(cfg, verbose)
 	case "clean":
 		err = doClean(cfg, verbose)
 	case "all":
-		err = doAll(cfg, verbose, startTime)
+		if cfg.IsLibrary() {
+			err = doAllLibrary(cfg, verbose, startTime)
+		} else {
+			err = doAll(cfg, verbose, startTime)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n", cmd)
 		os.Exit(1)
@@ -148,6 +176,53 @@ func doAll(cfg BuildConfig, verbose bool, startTime time.Time) error {
 		{"Build", buildStatus},
 		{"Test", testStatus},
 		{"Integration", integrationStatus},
+	}
+	ui.SummaryCard("All Tasks Complete", rows, fmt.Sprintf("%.2fs", totalTime.Seconds()), true)
+
+	return nil
+}
+
+// doAllLibrary runs clean + lint + test + coverage for library projects.
+func doAllLibrary(cfg BuildConfig, verbose bool, startTime time.Time) error {
+	var errors []error
+
+	fmt.Println("\n🧹 Cleaning...")
+	if cleanErr := doClean(cfg, verbose); cleanErr != nil {
+		errors = append(errors, fmt.Errorf("clean failed: %w", cleanErr))
+	}
+
+	fmt.Println("\n🔎 Linting...")
+	if lintErr := doLint(cfg, verbose); lintErr != nil {
+		errors = append(errors, fmt.Errorf("lint failed: %w", lintErr))
+	}
+
+	fmt.Println("\n🧪 Testing...")
+	if testErr := doTest(cfg, verbose); testErr != nil {
+		errors = append(errors, fmt.Errorf("tests failed: %w", testErr))
+	}
+
+	fmt.Println("\n📊 Coverage...")
+	if covErr := doCoverage(cfg, verbose); covErr != nil {
+		errors = append(errors, fmt.Errorf("coverage failed: %w", covErr))
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf("%d tasks failed", len(errors))
+	}
+
+	totalTime := time.Since(startTime)
+	mark := func(s string) string {
+		if ui.ColourEnabled() {
+			return ui.Green + s + ui.Reset
+		}
+		return s
+	}
+	rows := [][]string{
+		{"Task", "Status"},
+		{"Clean", mark("✓ Complete")},
+		{"Lint", mark("✓ Complete")},
+		{"Test", mark("✓ Complete")},
+		{"Coverage", mark("✓ Complete")},
 	}
 	ui.SummaryCard("All Tasks Complete", rows, fmt.Sprintf("%.2fs", totalTime.Seconds()), true)
 

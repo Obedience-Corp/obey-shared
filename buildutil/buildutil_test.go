@@ -63,6 +63,48 @@ func TestBuildTagsArgs(t *testing.T) {
 	}
 }
 
+func TestBuildConfigIsLibrary(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  BuildConfig
+		want bool
+	}{
+		{
+			name: "empty config is library",
+			cfg:  BuildConfig{},
+			want: true,
+		},
+		{
+			name: "only section name is library",
+			cfg:  BuildConfig{SectionName: "obey-shared"},
+			want: true,
+		},
+		{
+			name: "binary + main is application",
+			cfg:  BuildConfig{BinaryName: "obey", MainPath: "./cmd/obey"},
+			want: false,
+		},
+		{
+			name: "binary only is application",
+			cfg:  BuildConfig{BinaryName: "obey"},
+			want: false,
+		},
+		{
+			name: "main only is application",
+			cfg:  BuildConfig{MainPath: "./cmd/obey"},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.cfg.IsLibrary(); got != tt.want {
+				t.Errorf("IsLibrary() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIntegrationTestDir(t *testing.T) {
 	tests := []struct {
 		name string
