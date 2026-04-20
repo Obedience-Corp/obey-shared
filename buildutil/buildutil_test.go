@@ -1,6 +1,10 @@
 package buildutil
 
 import (
+	"bytes"
+	"io"
+	"os"
+	"reflect"
 	"slices"
 	"testing"
 )
@@ -133,6 +137,142 @@ func TestIntegrationTestDir(t *testing.T) {
 	}
 }
 
+func TestCommandSurfacePath(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  BuildConfig
+		want string
+	}{
+		{
+			name: "defaults to main path",
+			cfg:  BuildConfig{MainPath: "./cmd/example"},
+			want: "./cmd/example",
+		},
+		{
+			name: "explicit command surface path wins",
+			cfg: BuildConfig{
+				MainPath:           "./cmd/example",
+				CommandSurfacePath: "./cmd/example-profile",
+			},
+			want: "./cmd/example-profile",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := commandSurfacePath(tt.cfg); got != tt.want {
+				t.Errorf("commandSurfacePath() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCommandSurfaceArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  BuildConfig
+		want []string
+	}{
+		{
+			name: "default helper args",
+			cfg:  BuildConfig{},
+			want: []string{"__commands"},
+		},
+		{
+			name: "explicit helper args",
+			cfg:  BuildConfig{CommandSurfaceArgs: []string{"debug", "commands"}},
+			want: []string{"debug", "commands"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := commandSurfaceArgs(tt.cfg); !slices.Equal(got, tt.want) {
+				t.Errorf("commandSurfaceArgs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestProfileCommandArgs(t *testing.T) {
+	tests := []struct {
+		name      string
+		cfg       BuildConfig
+		extraTags []string
+		want      []string
+	}{
+		{
+			name: "stable uses configured tags and defaults",
+			cfg: BuildConfig{
+				MainPath:  "./cmd/example",
+				BuildTags: []string{"release"},
+			},
+			want: []string{"run", "-tags", "release", "./cmd/example", "__commands"},
+		},
+		{
+			name: "dev appends extra tags",
+			cfg: BuildConfig{
+				MainPath:  "./cmd/example",
+				BuildTags: []string{"release"},
+			},
+			extraTags: []string{"dev"},
+			want:      []string{"run", "-tags", "release,dev", "./cmd/example", "__commands"},
+		},
+		{
+			name: "custom surface path and args",
+			cfg: BuildConfig{
+				MainPath:           "./cmd/example",
+				CommandSurfacePath: "./cmd/surface",
+				CommandSurfaceArgs: []string{"debug", "commands"},
+			},
+			extraTags: []string{"dev"},
+			want:      []string{"run", "-tags", "dev", "./cmd/surface", "debug", "commands"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := profileCommandArgs(tt.cfg, tt.extraTags); !slices.Equal(got, tt.want) {
+				t.Errorf("profileCommandArgs() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseCommandSurfaceOutput(t *testing.T) {
+	output := []byte("\ncmd alpha\n\n  cmd beta  \ncmd gamma\n")
+
+	got := parseCommandSurfaceOutput(output)
+	want := []string{"cmd alpha", "cmd beta", "cmd gamma"}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("parseCommandSurfaceOutput() = %#v, want %#v", got, want)
+	}
+}
+
+func TestDiffCommandSurfaces(t *testing.T) {
+	base := []string{"cmd alpha", "cmd beta"}
+	candidate := []string{"cmd alpha", "cmd beta", "cmd explore", "cmd explore active"}
+
+	got := diffCommandSurfaces(base, candidate)
+	want := []string{"cmd explore", "cmd explore active"}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("diffCommandSurfaces() = %#v, want %#v", got, want)
+	}
+}
+
+func TestPrintCommandProfile(t *testing.T) {
+	output := captureStdout(t, func() {
+		printCommandProfile("stable", []string{"cmd alpha", "cmd beta"})
+	})
+
+	want := "== stable profile (2 commands) ==\ncmd alpha\ncmd beta\n"
+	if output != want {
+		t.Fatalf("printCommandProfile() = %q, want %q", output, want)
+	}
+}
+
 func TestParseTestOutput(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -204,3 +344,33 @@ func TestParseTestOutput(t *testing.T) {
 	}
 }
 
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+
+	original := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe(): %v", err)
+	}
+	os.Stdout = w
+
+	defer func() {
+		os.Stdout = original
+	}()
+
+	fn()
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, r); err != nil {
+		t.Fatalf("io.Copy(): %v", err)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatalf("close reader: %v", err)
+	}
+
+	return buf.String()
+}
