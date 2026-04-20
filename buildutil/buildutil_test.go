@@ -194,12 +194,84 @@ func TestCommandSurfaceArgs(t *testing.T) {
 	}
 }
 
+func TestCommandSurfaceProfiles(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     BuildConfig
+		want    []CommandSurfaceProfile
+		wantErr string
+	}{
+		{
+			name: "defaults to stable and dev",
+			cfg:  BuildConfig{},
+			want: []CommandSurfaceProfile{
+				{Name: "stable"},
+				{Name: "dev", Tags: []string{"dev"}},
+			},
+		},
+		{
+			name: "custom profiles preserved",
+			cfg: BuildConfig{
+				CommandSurfaceProfiles: []CommandSurfaceProfile{
+					{Name: "stable"},
+					{Name: "enterprise", Tags: []string{"enterprise"}},
+					{Name: "experimental", Tags: []string{"exp", "debug"}},
+				},
+			},
+			want: []CommandSurfaceProfile{
+				{Name: "stable"},
+				{Name: "enterprise", Tags: []string{"enterprise"}},
+				{Name: "experimental", Tags: []string{"exp", "debug"}},
+			},
+		},
+		{
+			name: "blank profile names rejected",
+			cfg: BuildConfig{
+				CommandSurfaceProfiles: []CommandSurfaceProfile{
+					{Name: "stable"},
+					{Name: "   "},
+				},
+			},
+			wantErr: `command surface profiles require a non-empty name`,
+		},
+		{
+			name: "duplicate names rejected",
+			cfg: BuildConfig{
+				CommandSurfaceProfiles: []CommandSurfaceProfile{
+					{Name: "stable"},
+					{Name: "stable", Tags: []string{"dev"}},
+				},
+			},
+			wantErr: `duplicate command surface profile "stable"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := commandSurfaceProfiles(tt.cfg)
+			if tt.wantErr != "" {
+				if err == nil || err.Error() != tt.wantErr {
+					t.Fatalf("commandSurfaceProfiles() error = %v, want %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("commandSurfaceProfiles() error = %v", err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("commandSurfaceProfiles() = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestProfileCommandArgs(t *testing.T) {
 	tests := []struct {
-		name      string
-		cfg       BuildConfig
-		extraTags []string
-		want      []string
+		name    string
+		cfg     BuildConfig
+		profile CommandSurfaceProfile
+		envTags string
+		want    []string
 	}{
 		{
 			name: "stable uses configured tags and defaults",
@@ -207,16 +279,17 @@ func TestProfileCommandArgs(t *testing.T) {
 				MainPath:  "./cmd/example",
 				BuildTags: []string{"release"},
 			},
-			want: []string{"run", "-tags", "release", "./cmd/example", "__commands"},
+			profile: CommandSurfaceProfile{Name: "stable"},
+			want:    []string{"run", "-tags", "release", "./cmd/example", "__commands"},
 		},
 		{
-			name: "dev appends extra tags",
+			name: "profile appends extra tags",
 			cfg: BuildConfig{
 				MainPath:  "./cmd/example",
 				BuildTags: []string{"release"},
 			},
-			extraTags: []string{"dev"},
-			want:      []string{"run", "-tags", "release,dev", "./cmd/example", "__commands"},
+			profile: CommandSurfaceProfile{Name: "dev", Tags: []string{"dev"}},
+			want:    []string{"run", "-tags", "release,dev", "./cmd/example", "__commands"},
 		},
 		{
 			name: "custom surface path and args",
@@ -225,14 +298,25 @@ func TestProfileCommandArgs(t *testing.T) {
 				CommandSurfacePath: "./cmd/surface",
 				CommandSurfaceArgs: []string{"debug", "commands"},
 			},
-			extraTags: []string{"dev"},
-			want:      []string{"run", "-tags", "dev", "./cmd/surface", "debug", "commands"},
+			profile: CommandSurfaceProfile{Name: "dev", Tags: []string{"dev"}},
+			want:    []string{"run", "-tags", "dev", "./cmd/surface", "debug", "commands"},
+		},
+		{
+			name: "env tags are included",
+			cfg: BuildConfig{
+				MainPath: "./cmd/example",
+			},
+			profile: CommandSurfaceProfile{Name: "enterprise", Tags: []string{"enterprise"}},
+			envTags: "trace",
+			want:    []string{"run", "-tags", "enterprise,trace", "./cmd/example", "__commands"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := profileCommandArgs(tt.cfg, tt.extraTags); !slices.Equal(got, tt.want) {
+			t.Setenv("BUILD_TAGS", tt.envTags)
+
+			if got := profileCommandArgs(tt.cfg, tt.profile); !slices.Equal(got, tt.want) {
 				t.Errorf("profileCommandArgs() = %v, want %v", got, tt.want)
 			}
 		})
@@ -259,6 +343,40 @@ func TestDiffCommandSurfaces(t *testing.T) {
 
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("diffCommandSurfaces() = %#v, want %#v", got, want)
+	}
+}
+
+func TestFindCommandSurfaceProfile(t *testing.T) {
+	profiles := []CommandSurfaceProfile{
+		{Name: "stable"},
+		{Name: "enterprise", Tags: []string{"enterprise"}},
+	}
+
+	got, ok := findCommandSurfaceProfile(profiles, "enterprise")
+	if !ok {
+		t.Fatal("expected profile lookup to succeed")
+	}
+	want := CommandSurfaceProfile{Name: "enterprise", Tags: []string{"enterprise"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("findCommandSurfaceProfile() = %#v, want %#v", got, want)
+	}
+
+	if _, ok := findCommandSurfaceProfile(profiles, "missing"); ok {
+		t.Fatal("expected missing profile lookup to fail")
+	}
+}
+
+func TestCommandSurfaceProfileNames(t *testing.T) {
+	profiles := []CommandSurfaceProfile{
+		{Name: "stable"},
+		{Name: "dev"},
+		{Name: "enterprise"},
+	}
+
+	got := commandSurfaceProfileNames(profiles)
+	want := []string{"stable", "dev", "enterprise"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("commandSurfaceProfileNames() = %#v, want %#v", got, want)
 	}
 }
 

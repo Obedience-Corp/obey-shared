@@ -11,72 +11,71 @@ func doProfileCommands(cfg BuildConfig, profile string) error {
 		return fmt.Errorf("profile-commands requires MainPath or CommandSurfacePath")
 	}
 
+	profiles, err := commandSurfaceProfiles(cfg)
+	if err != nil {
+		return err
+	}
+
 	switch profile {
 	case "", "all":
-		stable, err := commandSurface(cfg, nil)
-		if err != nil {
-			return err
+		surfaces := make(map[string][]string, len(profiles))
+		for i, commandProfile := range profiles {
+			commands, err := commandSurface(cfg, commandProfile)
+			if err != nil {
+				return err
+			}
+			surfaces[commandProfile.Name] = commands
+			printCommandProfile(commandProfile.Name, commands)
+			if i < len(profiles)-1 {
+				fmt.Println()
+			}
 		}
 
-		dev, err := commandSurface(cfg, []string{"dev"})
-		if err != nil {
-			return err
+		baseline := profiles[0]
+		for _, commandProfile := range profiles[1:] {
+			fmt.Println()
+			diff := diffCommandSurfaces(surfaces[baseline.Name], surfaces[commandProfile.Name])
+			fmt.Printf("== %s-only commands vs %s (%d commands) ==\n", commandProfile.Name, baseline.Name, len(diff))
+			for _, path := range diff {
+				fmt.Println(path)
+			}
 		}
 
-		printCommandProfile("stable", stable)
-		fmt.Println()
-		printCommandProfile("dev", dev)
-		fmt.Println()
-
-		devOnly := diffCommandSurfaces(stable, dev)
-		fmt.Printf("== dev-only commands (%d commands) ==\n", len(devOnly))
-		for _, path := range devOnly {
-			fmt.Println(path)
-		}
-		return nil
-
-	case "stable":
-		commands, err := commandSurface(cfg, nil)
-		if err != nil {
-			return err
-		}
-		printCommandProfile("stable", commands)
-		return nil
-
-	case "dev":
-		commands, err := commandSurface(cfg, []string{"dev"})
-		if err != nil {
-			return err
-		}
-		printCommandProfile("dev", commands)
 		return nil
 
 	default:
-		return fmt.Errorf("unknown profile %q (use stable, dev, or all)", profile)
+		commandProfile, ok := findCommandSurfaceProfile(profiles, profile)
+		if !ok {
+			return fmt.Errorf("unknown profile %q (use all or one of: %s)", profile, strings.Join(commandSurfaceProfileNames(profiles), ", "))
+		}
+
+		commands, err := commandSurface(cfg, commandProfile)
+		if err != nil {
+			return err
+		}
+		printCommandProfile(commandProfile.Name, commands)
+		return nil
 	}
 }
 
-func commandSurface(cfg BuildConfig, extraTags []string) ([]string, error) {
-	args := profileCommandArgs(cfg, extraTags)
+func commandSurface(cfg BuildConfig, profile CommandSurfaceProfile) ([]string, error) {
+	args := profileCommandArgs(cfg, profile)
 
 	cmd := exec.Command("go", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("collect %s command surface: %w\n%s", profileName(extraTags), err, strings.TrimSpace(string(output)))
+		return nil, fmt.Errorf("collect %s command surface: %w\n%s", profile.Name, err, strings.TrimSpace(string(output)))
 	}
 
 	return parseCommandSurfaceOutput(output), nil
 }
 
-func profileCommandArgs(cfg BuildConfig, extraTags []string) []string {
+func profileCommandArgs(cfg BuildConfig, profile CommandSurfaceProfile) []string {
 	args := []string{"run"}
 
-	tags := make([]string, 0, len(cfg.BuildTags)+len(extraTags))
-	tags = append(tags, cfg.BuildTags...)
-	tags = append(tags, extraTags...)
-	if len(tags) > 0 {
-		args = append(args, "-tags", strings.Join(tags, ","))
-	}
+	profileCfg := cfg
+	profileCfg.BuildTags = append(append([]string{}, cfg.BuildTags...), profile.Tags...)
+	args = append(args, buildTagsArgs(profileCfg)...)
 
 	args = append(args, commandSurfacePath(cfg))
 	args = append(args, commandSurfaceArgs(cfg)...)
@@ -113,16 +112,26 @@ func diffCommandSurfaces(base, candidate []string) []string {
 	return diff
 }
 
+func findCommandSurfaceProfile(profiles []CommandSurfaceProfile, name string) (CommandSurfaceProfile, bool) {
+	for _, profile := range profiles {
+		if profile.Name == name {
+			return profile, true
+		}
+	}
+	return CommandSurfaceProfile{}, false
+}
+
+func commandSurfaceProfileNames(profiles []CommandSurfaceProfile) []string {
+	names := make([]string, 0, len(profiles))
+	for _, profile := range profiles {
+		names = append(names, profile.Name)
+	}
+	return names
+}
+
 func printCommandProfile(name string, commands []string) {
 	fmt.Printf("== %s profile (%d commands) ==\n", name, len(commands))
 	for _, path := range commands {
 		fmt.Println(path)
 	}
-}
-
-func profileName(extraTags []string) string {
-	if len(extraTags) == 0 {
-		return "stable"
-	}
-	return strings.Join(extraTags, ",")
 }

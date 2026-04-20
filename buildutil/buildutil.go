@@ -15,6 +15,15 @@ import (
 	"github.com/Obedience-Corp/obey-shared/buildutil/ui"
 )
 
+// CommandSurfaceProfile describes one named command-surface build profile.
+type CommandSurfaceProfile struct {
+	// Name is the CLI selector used with `profile-commands <name>`.
+	Name string
+
+	// Tags are appended to BuildTags when inspecting this profile.
+	Tags []string
+}
+
 // BuildConfig defines project-specific build parameters.
 type BuildConfig struct {
 	// BinaryName is the output binary name (e.g., "obey", "camp", "fest").
@@ -37,6 +46,15 @@ type BuildConfig struct {
 	// CommandSurfaceArgs are the CLI args that emit the visible command tree.
 	// Defaults to []string{"__commands"}.
 	CommandSurfaceArgs []string
+
+	// CommandSurfaceProfiles defines the named profiles exposed by
+	// `profile-commands`. When empty, the default is:
+	//   - stable: no extra tags
+	//   - dev: extra tag "dev"
+	//
+	// The first profile is the baseline used for diff sections in
+	// `profile-commands all`.
+	CommandSurfaceProfiles []CommandSurfaceProfile
 
 	// LDFlags returns the -ldflags string for the main binary build.
 	// If nil, no ldflags are applied. Used for version injection.
@@ -271,6 +289,45 @@ func commandSurfaceArgs(cfg BuildConfig) []string {
 		return cfg.CommandSurfaceArgs
 	}
 	return []string{"__commands"}
+}
+
+func commandSurfaceProfiles(cfg BuildConfig) ([]CommandSurfaceProfile, error) {
+	profiles := cfg.CommandSurfaceProfiles
+	if len(profiles) == 0 {
+		profiles = []CommandSurfaceProfile{
+			{Name: "stable"},
+			{Name: "dev", Tags: []string{"dev"}},
+		}
+	}
+
+	seen := make(map[string]struct{}, len(profiles))
+	validated := make([]CommandSurfaceProfile, 0, len(profiles))
+	for _, profile := range profiles {
+		name := strings.TrimSpace(profile.Name)
+		if name == "" {
+			return nil, fmt.Errorf("command surface profiles require a non-empty name")
+		}
+		if _, exists := seen[name]; exists {
+			return nil, fmt.Errorf("duplicate command surface profile %q", name)
+		}
+		seen[name] = struct{}{}
+
+		var tags []string
+		for _, tag := range profile.Tags {
+			tag = strings.TrimSpace(tag)
+			if tag == "" {
+				continue
+			}
+			tags = append(tags, tag)
+		}
+
+		validated = append(validated, CommandSurfaceProfile{
+			Name: name,
+			Tags: tags,
+		})
+	}
+
+	return validated, nil
 }
 
 // integrationTestDir returns the configured or default integration test directory.
