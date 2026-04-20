@@ -30,6 +30,14 @@ type BuildConfig struct {
 	// Merged with BUILD_TAGS environment variable.
 	BuildTags []string
 
+	// CommandSurfacePath is the Go package path used to inspect the visible
+	// command tree for profile comparison. Defaults to MainPath.
+	CommandSurfacePath string
+
+	// CommandSurfaceArgs are the CLI args that emit the visible command tree.
+	// Defaults to []string{"__commands"}.
+	CommandSurfaceArgs []string
+
 	// LDFlags returns the -ldflags string for the main binary build.
 	// If nil, no ldflags are applied. Used for version injection.
 	LDFlags func() string
@@ -66,7 +74,7 @@ func Run(args []string, cfg BuildConfig) {
 
 	ui.Init(noColor)
 
-	usage := "usage: buildutil <build|build-only|test|integration|lint|coverage|clean|all>\n"
+	usage := "usage: buildutil <build|build-only|profile-commands|test|integration|lint|coverage|clean|all>\n"
 	if cfg.IsLibrary() {
 		usage = "usage: buildutil <test|lint|coverage|clean|all>\n"
 	}
@@ -81,7 +89,7 @@ func Run(args []string, cfg BuildConfig) {
 
 	if cfg.IsLibrary() {
 		switch cmd {
-		case "build", "build-only", "integration":
+		case "build", "build-only", "profile-commands", "integration":
 			fmt.Fprintf(os.Stderr, "%q is not available in library mode (BinaryName/MainPath unset)\n", cmd)
 			os.Exit(1)
 		}
@@ -99,6 +107,12 @@ func Run(args []string, cfg BuildConfig) {
 		err = doBuild(cfg, verbose)
 	case "build-only":
 		err = doBuildOnly(cfg, verbose)
+	case "profile-commands":
+		profile := "all"
+		if fs.NArg() > 1 {
+			profile = fs.Arg(1)
+		}
+		err = doProfileCommands(cfg, profile)
 	case "test":
 		err = doTest(cfg, verbose)
 	case "integration":
@@ -243,6 +257,20 @@ func buildTagsArgs(cfg BuildConfig) []string {
 		return nil
 	}
 	return []string{"-tags", strings.Join(tags, ",")}
+}
+
+func commandSurfacePath(cfg BuildConfig) string {
+	if cfg.CommandSurfacePath != "" {
+		return cfg.CommandSurfacePath
+	}
+	return cfg.MainPath
+}
+
+func commandSurfaceArgs(cfg BuildConfig) []string {
+	if len(cfg.CommandSurfaceArgs) > 0 {
+		return cfg.CommandSurfaceArgs
+	}
+	return []string{"__commands"}
 }
 
 // integrationTestDir returns the configured or default integration test directory.
