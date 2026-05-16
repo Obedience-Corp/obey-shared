@@ -69,9 +69,25 @@ type BuildConfig struct {
 	// If nil, uses default CGO+zig cross-compilation.
 	IntegrationBuildEnv func() []string
 
+	// IntegrationTimeout is the `-timeout` value passed to `go test` for
+	// each integration suite. Container-backed suites routinely run beyond
+	// the Go default of 10m; consumers can shorten or extend per project.
+	// If zero, defaults to 10 minutes — large enough for typical
+	// Docker-based suites without masking a hung test indefinitely.
+	IntegrationTimeout time.Duration
+
 	// CleanPatterns overrides the default list of glob patterns to clean.
 	// If nil, uses the built-in default list.
 	CleanPatterns []string
+}
+
+// integrationTimeout returns the configured IntegrationTimeout, or the
+// 10-minute default when unset.
+func (c BuildConfig) integrationTimeout() time.Duration {
+	if c.IntegrationTimeout > 0 {
+		return c.IntegrationTimeout
+	}
+	return 10 * time.Minute
 }
 
 // IsLibrary reports whether this config describes a library project

@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"slices"
 	"testing"
+	"time"
 )
 
 func TestBuildTagsArgs(t *testing.T) {
@@ -132,6 +133,44 @@ func TestIntegrationTestDir(t *testing.T) {
 			got := integrationTestDir(tt.cfg)
 			if got != tt.want {
 				t.Errorf("integrationTestDir() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIntegrationTimeout(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  BuildConfig
+		want time.Duration
+	}{
+		{
+			name: "default when unset",
+			cfg:  BuildConfig{},
+			want: 10 * time.Minute,
+		},
+		{
+			name: "default when zero",
+			cfg:  BuildConfig{IntegrationTimeout: 0},
+			want: 10 * time.Minute,
+		},
+		{
+			name: "custom shorter",
+			cfg:  BuildConfig{IntegrationTimeout: 30 * time.Second},
+			want: 30 * time.Second,
+		},
+		{
+			name: "custom longer",
+			cfg:  BuildConfig{IntegrationTimeout: 30 * time.Minute},
+			want: 30 * time.Minute,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.cfg.integrationTimeout()
+			if got != tt.want {
+				t.Errorf("integrationTimeout() = %v, want %v", got, tt.want)
 			}
 		})
 	}
