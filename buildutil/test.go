@@ -39,18 +39,23 @@ func doTest(cfg BuildConfig, verbose bool) error {
 		start := time.Now()
 
 		cmd := exec.Command("go", "test", "-json", "-count=1", "-short", "-timeout", "30s", pkg)
-		output, _ := cmd.Output()
+		output, runErr := cmd.Output()
 		duration := time.Since(start)
 
 		testsPassed, testsFailed := parseTestOutput(output, verbose)
-		pass := testsFailed == 0
+		pass := testsFailed == 0 && runErr == nil
 
+		exitErrStr := ""
+		if runErr != nil {
+			exitErrStr = runErr.Error()
+		}
 		results = append(results, testResult{
 			Package:     shortName,
 			Pass:        pass,
 			Duration:    duration,
 			TestsPassed: testsPassed,
 			TestsFailed: testsFailed,
+			ExitErr:     exitErrStr,
 		})
 
 		if !pass {
@@ -78,20 +83,42 @@ func doTest(cfg BuildConfig, verbose bool) error {
 	// Display summary - only show packages with failures
 	rows := [][]string{}
 	hasFailures := pkgFailures > 0
+	pkgsWithoutPerTestFailures := 0
 
 	for _, r := range results {
-		if !r.Pass {
+		if r.Pass {
+			continue
+		}
+		// Per-test failures: existing render.
+		if r.TestsFailed > 0 {
 			status := fmt.Sprintf("✗ %d failed", r.TestsFailed)
 			if ui.ColourEnabled() {
 				status = ui.Red + status + ui.Reset
 			}
-
 			rows = append(rows, []string{
 				r.Package,
 				status,
 				fmt.Sprintf("%.2fs", r.Duration.Seconds()),
 			})
+			continue
 		}
+		// Package exited non-zero with no per-test failure recorded:
+		// surface the underlying cause (build error, panic, timeout)
+		// so the dashboard is honest.
+		pkgsWithoutPerTestFailures++
+		cause := r.ExitErr
+		if cause == "" {
+			cause = "exited non-zero"
+		}
+		status := "✗ " + cause
+		if ui.ColourEnabled() {
+			status = ui.Red + status + ui.Reset
+		}
+		rows = append(rows, []string{
+			r.Package,
+			status,
+			fmt.Sprintf("%.2fs", r.Duration.Seconds()),
+		})
 	}
 
 	if hasFailures {
@@ -101,7 +128,7 @@ func doTest(cfg BuildConfig, verbose bool) error {
 	totalTests := totalTestsPassed + totalTestsFailed
 	totalStatus := fmt.Sprintf("%d/%d tests passed", totalTestsPassed, totalTests)
 	if ui.ColourEnabled() {
-		if totalTestsFailed > 0 {
+		if totalTestsFailed > 0 || pkgsWithoutPerTestFailures > 0 {
 			totalStatus = ui.Red + totalStatus + ui.Reset
 		} else {
 			totalStatus = ui.Green + totalStatus + ui.Reset
@@ -123,12 +150,33 @@ func doTest(cfg BuildConfig, verbose bool) error {
 	}
 
 	successMsg := fmt.Sprintf("✓ ALL %d TESTS PASSED", totalTestsPassed)
-	failMsg := fmt.Sprintf("✗ %d/%d TESTS FAILED", totalTestsFailed, totalTests)
+	var failMsg string
+	switch {
+	case totalTestsFailed > 0 && pkgsWithoutPerTestFailures > 0:
+		failMsg = fmt.Sprintf("✗ %d/%d tests failed + %d package(s) exited non-zero with no per-test failure",
+			totalTestsFailed, totalTests, pkgsWithoutPerTestFailures)
+	case totalTestsFailed > 0:
+		failMsg = fmt.Sprintf("✗ %d/%d TESTS FAILED", totalTestsFailed, totalTests)
+	default:
+		// All recorded tests passed, but at least one package exited
+		// non-zero (build error, panic, timeout). Never render the
+		// contradictory "0/N TESTS FAILED" header.
+		failMsg = fmt.Sprintf("✗ %d package(s) exited non-zero (no per-test failure recorded; likely build error, panic, or timeout)",
+			pkgsWithoutPerTestFailures)
+	}
 
 	ui.SummaryCardWithStatus(title, rows, fmt.Sprintf("%.2fs", totalTime.Seconds()), success, successMsg, failMsg)
 
 	if pkgFailures > 0 {
-		return fmt.Errorf("%d packages had test failures (%d tests failed)", pkgFailures, totalTestsFailed)
+		switch {
+		case totalTestsFailed > 0 && pkgsWithoutPerTestFailures > 0:
+			return fmt.Errorf("%d packages had test failures (%d tests failed) and %d packages exited non-zero with no per-test failure",
+				pkgFailures-pkgsWithoutPerTestFailures, totalTestsFailed, pkgsWithoutPerTestFailures)
+		case pkgsWithoutPerTestFailures > 0:
+			return fmt.Errorf("%d packages exited non-zero (no per-test failure recorded; likely build error, panic, or timeout)", pkgsWithoutPerTestFailures)
+		default:
+			return fmt.Errorf("%d packages had test failures (%d tests failed)", pkgFailures, totalTestsFailed)
+		}
 	}
 
 	return nil
@@ -182,4 +230,10 @@ type testResult struct {
 	Duration    time.Duration
 	TestsPassed int
 	TestsFailed int
+	// ExitErr captures the underlying error from `go test` when the
+	// package exited non-zero without reporting any per-test failure
+	// (build error, panic, timeout). Used to surface an accurate cause
+	// in the dashboard instead of the contradictory "0/N tests failed"
+	// output.
+	ExitErr string
 }

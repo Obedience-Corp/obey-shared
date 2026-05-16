@@ -107,14 +107,17 @@ func doIntegration(cfg BuildConfig, verbose bool) error {
 		var testsPassed, testsFailed int
 		var failedTests []string
 
+		timeoutArg := cfg.integrationTimeout().String()
+		var suiteExitErr error
 		if verbose {
-			cmd := exec.Command("go", "test", "-v", "-parallel", "4", "-tags", "integration", "-timeout", "2m", "./"+suite)
+			cmd := exec.Command("go", "test", "-v", "-parallel", "4", "-tags", "integration", "-timeout", timeoutArg, "./"+suite)
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			ui.Progress(i+1, total, fmt.Sprintf("Testing %s", name))
-			pass = cmd.Run() == nil
+			suiteExitErr = cmd.Run()
+			pass = suiteExitErr == nil
 		} else {
-			cmd := exec.Command("go", "test", "-json", "-count=1", "-parallel", "4", "-tags", "integration", "-timeout", "2m", "./"+suite)
+			cmd := exec.Command("go", "test", "-json", "-count=1", "-parallel", "4", "-tags", "integration", "-timeout", timeoutArg, "./"+suite)
 			stdout, err := cmd.StdoutPipe()
 			if err != nil {
 				return fmt.Errorf("failed to create stdout pipe: %w", err)
@@ -212,13 +215,17 @@ func doIntegration(cfg BuildConfig, verbose bool) error {
 			}
 
 			close(done)
-			waitErr := cmd.Wait()
-			pass = testsFailed == 0 && waitErr == nil
+			suiteExitErr = cmd.Wait()
+			pass = testsFailed == 0 && suiteExitErr == nil
 			ui.ClearProgressWithOutput()
 		}
 
 		duration := time.Since(start)
 
+		exitErrStr := ""
+		if suiteExitErr != nil {
+			exitErrStr = suiteExitErr.Error()
+		}
 		results = append(results, integrationResult{
 			Suite:       name,
 			Pass:        pass,
@@ -226,6 +233,7 @@ func doIntegration(cfg BuildConfig, verbose bool) error {
 			TestsPassed: testsPassed,
 			TestsFailed: testsFailed,
 			FailedTests: failedTests,
+			ExitErr:     exitErrStr,
 		})
 
 		if !pass {
@@ -249,9 +257,14 @@ func doIntegration(cfg BuildConfig, verbose bool) error {
 	// Display summary
 	rows := [][]string{}
 	hasFailures := failures > 0
+	suitesWithoutPerTestFailures := 0
 
 	for _, r := range results {
-		if !r.Pass && len(r.FailedTests) > 0 {
+		if r.Pass {
+			continue
+		}
+		// Suites that recorded per-test failures: list each.
+		if len(r.FailedTests) > 0 {
 			for _, testName := range r.FailedTests {
 				status := "✗ FAILED"
 				if ui.ColourEnabled() {
@@ -263,16 +276,34 @@ func doIntegration(cfg BuildConfig, verbose bool) error {
 					"",
 				})
 			}
+			continue
 		}
+		// Suite exited non-zero with no per-test failure recorded:
+		// surface the underlying cause (panic, timeout, build error,
+		// TestMain non-zero exit) so the dashboard is honest.
+		suitesWithoutPerTestFailures++
+		cause := r.ExitErr
+		if cause == "" {
+			cause = "exited non-zero"
+		}
+		status := "✗ " + cause
+		if ui.ColourEnabled() {
+			status = ui.Red + status + ui.Reset
+		}
+		rows = append(rows, []string{
+			r.Suite,
+			status,
+			fmt.Sprintf("%.2fs", r.Duration.Seconds()),
+		})
 	}
 
 	if hasFailures && len(rows) > 0 {
-		rows = append([][]string{{"Failed Test", "Status", ""}}, rows...)
+		rows = append([][]string{{"Failed Test / Suite", "Status / Cause", "Time"}}, rows...)
 	}
 
 	totalStatus := fmt.Sprintf("%d/%d tests passed", totalTestsPassed, totalTests)
 	if ui.ColourEnabled() {
-		if totalTestsFailed > 0 {
+		if totalTestsFailed > 0 || suitesWithoutPerTestFailures > 0 {
 			totalStatus = ui.Red + totalStatus + ui.Reset
 		} else {
 			totalStatus = ui.Green + totalStatus + ui.Reset
@@ -288,7 +319,20 @@ func doIntegration(cfg BuildConfig, verbose bool) error {
 	success := failures == 0
 
 	successMsg := fmt.Sprintf("✓ ALL %d TESTS PASSED", totalTestsPassed)
-	failMsg := fmt.Sprintf("✗ %d/%d TESTS FAILED", totalTestsFailed, totalTests)
+	var failMsg string
+	switch {
+	case totalTestsFailed > 0 && suitesWithoutPerTestFailures > 0:
+		failMsg = fmt.Sprintf("✗ %d/%d tests failed + %d suite(s) exited non-zero with no per-test failure",
+			totalTestsFailed, totalTests, suitesWithoutPerTestFailures)
+	case totalTestsFailed > 0:
+		failMsg = fmt.Sprintf("✗ %d/%d TESTS FAILED", totalTestsFailed, totalTests)
+	default:
+		// All recorded tests passed, but at least one suite returned
+		// non-zero exit (panic, timeout, build error). Never render the
+		// contradictory "0/N TESTS FAILED" header.
+		failMsg = fmt.Sprintf("✗ %d suite(s) exited non-zero (no per-test failure recorded; likely panic, timeout, or build error)",
+			suitesWithoutPerTestFailures)
+	}
 
 	ui.SummaryCardWithStatus("Integration Test Summary", rows, fmt.Sprintf("%.2fs", totalTime.Seconds()), success, successMsg, failMsg)
 
@@ -315,4 +359,10 @@ type integrationResult struct {
 	TestsPassed int
 	TestsFailed int
 	FailedTests []string
+	// ExitErr captures the underlying error from `go test` when the
+	// suite exited non-zero without reporting any per-test failure
+	// (panic, timeout, build failure, TestMain non-zero exit). Used to
+	// surface an accurate cause in the dashboard instead of the
+	// previously contradictory "0/N tests failed" output.
+	ExitErr string
 }
