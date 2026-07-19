@@ -5,6 +5,7 @@ go 1.25.6
 require (
 	github.com/charmbracelet/glamour v0.10.0
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
+	github.com/mattn/go-runewidth v0.0.16
 	github.com/testcontainers/testcontainers-go v0.42.0
 	golang.org/x/term v0.41.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -46,7 +47,6 @@ require (
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/magiconair/properties v1.8.10 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
-	github.com/mattn/go-runewidth v0.0.16 // indirect
 	github.com/microcosm-cc/bluemonday v1.0.27 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/go-archive v0.2.0 // indirect

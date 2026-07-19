@@ -1,6 +1,10 @@
 package brand
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/mattn/go-runewidth"
+)
 
 // LogoVariant identifies a bounded shared logo primitive.
 type LogoVariant string
@@ -16,6 +20,12 @@ const (
 	CompactMark = "▲"
 	// Wordmark is the shared Festival wordmark.
 	Wordmark = "FESTIVAL"
+
+	// FlameMaxWidth is the fixed terminal cell width of every flame frame.
+	// All flame lines are padded to this width so animation does not reflow layout.
+	FlameMaxWidth = 9
+	// FlameMaxHeight is the fixed line count of every full flame frame.
+	FlameMaxHeight = 6
 )
 
 // Frame contains one bounded logo frame. Lines are copied on construction and
@@ -29,11 +39,13 @@ func (f Frame) Lines() []string {
 	return append([]string(nil), f.lines...)
 }
 
-// Width returns the maximum rune width of the frame.
+// Width returns the maximum terminal cell width of the frame.
+// Cell width uses go-runewidth so full-width and emoji glyphs are measured
+// correctly; rune count alone is not used.
 func (f Frame) Width() int {
 	width := 0
 	for _, line := range f.lines {
-		if n := len([]rune(line)); n > width {
+		if n := runewidth.StringWidth(line); n > width {
 			width = n
 		}
 	}
@@ -53,6 +65,9 @@ func (f Frame) String() string {
 // FrameFor returns a deterministic frame for a logo variant. Only the flame
 // variant animates; compact mark and wordmark variants are stable primitives.
 // Negative frame values select the first flame frame.
+//
+// This helper does not consult reduced-motion policy. Prefer
+// FrameForCapabilities when the caller has resolved Capabilities.
 func FrameFor(variant LogoVariant, frame int) Frame {
 	switch variant {
 	case VariantCompactMark:
@@ -66,14 +81,30 @@ func FrameFor(variant LogoVariant, frame int) Frame {
 	}
 }
 
+// FrameForCapabilities returns a logo frame that respects motion policy.
+// When caps.AllowMotion() is false, the static frame is returned and frame
+// index is ignored.
+func FrameForCapabilities(variant LogoVariant, frame int, caps Capabilities) Frame {
+	if !caps.AllowMotion() {
+		return StaticFor(variant)
+	}
+	return FrameFor(variant, frame)
+}
+
 // StaticFor returns the non-animated frame for a logo variant.
 func StaticFor(variant LogoVariant) Frame {
 	return FrameFor(variant, 0)
 }
 
 // FlameFrame returns a deterministic animated flame frame.
+// Prefer FlameFrameFor when reduced-motion or plain policy should apply.
 func FlameFrame(frame int) Frame {
 	return FrameFor(VariantFlame, frame)
+}
+
+// FlameFrameFor returns a flame frame that respects motion policy.
+func FlameFrameFor(frame int, caps Capabilities) Frame {
+	return FrameForCapabilities(VariantFlame, frame, caps)
 }
 
 // StaticFlame returns the first full flame frame for plain or reduced-motion
@@ -91,8 +122,23 @@ func newFrame(lines ...string) Frame {
 	return Frame{lines: append([]string(nil), lines...)}
 }
 
+// newPaddedFrame pads each line with trailing spaces to a fixed cell width so
+// animated frames share stable geometry.
+func newPaddedFrame(width int, lines ...string) Frame {
+	padded := make([]string, len(lines))
+	for i, line := range lines {
+		w := runewidth.StringWidth(line)
+		if w < width {
+			padded[i] = line + strings.Repeat(" ", width-w)
+		} else {
+			padded[i] = line
+		}
+	}
+	return Frame{lines: padded}
+}
+
 var flameFrames = []Frame{
-	newFrame(
+	newPaddedFrame(FlameMaxWidth,
 		"    .  ",
 		"   )(  ",
 		"  )##( ",
@@ -100,7 +146,7 @@ var flameFrames = []Frame{
 		")######(",
 		" `####' ",
 	),
-	newFrame(
+	newPaddedFrame(FlameMaxWidth,
 		"   .   ",
 		"   )(  ",
 		"  )##( ",
@@ -108,7 +154,7 @@ var flameFrames = []Frame{
 		")######(",
 		" `####' ",
 	),
-	newFrame(
+	newPaddedFrame(FlameMaxWidth,
 		"  . .  ",
 		"  )#(  ",
 		" )###( ",
@@ -116,7 +162,7 @@ var flameFrames = []Frame{
 		")######(",
 		" `####' ",
 	),
-	newFrame(
+	newPaddedFrame(FlameMaxWidth,
 		"   .*  ",
 		"  )##( ",
 		" )####(",
@@ -124,7 +170,7 @@ var flameFrames = []Frame{
 		")#######(",
 		" `#####' ",
 	),
-	newFrame(
+	newPaddedFrame(FlameMaxWidth,
 		"  * .  ",
 		"  )#(  ",
 		" )###( ",
@@ -132,7 +178,7 @@ var flameFrames = []Frame{
 		")######(",
 		" `####' ",
 	),
-	newFrame(
+	newPaddedFrame(FlameMaxWidth,
 		"   .   ",
 		"  )#(  ",
 		" )###( ",

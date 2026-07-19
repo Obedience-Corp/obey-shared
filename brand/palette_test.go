@@ -91,3 +91,33 @@ func TestReducedMotionSharedName(t *testing.T) {
 		t.Fatal("OBEY_REDUCED_MOTION should enable reduced motion")
 	}
 }
+
+func TestAllowMotion(t *testing.T) {
+	interactive := Capabilities{IsTTY: true, ColorDepth: ColorTrueColor}
+	if !interactive.AllowMotion() {
+		t.Fatal("interactive TTY should allow motion")
+	}
+	if (Capabilities{IsTTY: true, ColorDepth: ColorTrueColor, ReducedMotion: true}).AllowMotion() {
+		t.Fatal("ReducedMotion should disable motion")
+	}
+	if (Capabilities{IsTTY: false, ColorDepth: ColorTrueColor}).AllowMotion() {
+		t.Fatal("non-TTY should disable motion via ForcesPlain")
+	}
+	if (Capabilities{IsTTY: true, ColorDepth: ColorNone}).AllowMotion() {
+		t.Fatal("ColorNone should disable motion via ForcesPlain")
+	}
+}
+
+func TestResolveIgnoresColorDepthTokens(t *testing.T) {
+	// Depth approximation is deferred to renderers; Resolve hex tokens match
+	// across truecolor/256/16 when the mode is otherwise the same.
+	base := Capabilities{IsTTY: true, DarkBackground: true, BackgroundKnown: true}
+	trueColor := Resolve(ModeDark, Capabilities{IsTTY: true, ColorDepth: ColorTrueColor, DarkBackground: true, BackgroundKnown: true})
+	ansi256 := Resolve(ModeDark, Capabilities{IsTTY: true, ColorDepth: ColorANSI256, DarkBackground: true, BackgroundKnown: true})
+	ansi16 := Resolve(ModeDark, Capabilities{IsTTY: true, ColorDepth: ColorANSI16, DarkBackground: true, BackgroundKnown: true})
+	_ = base
+	if trueColor.Accent != ansi256.Accent || trueColor.Accent != ansi16.Accent {
+		t.Fatalf("Resolve should keep semantic tokens; got true=%q 256=%q 16=%q",
+			trueColor.Accent, ansi256.Accent, ansi16.Accent)
+	}
+}

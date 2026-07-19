@@ -25,6 +25,14 @@ func ParseMode(value string) Mode {
 // ColorDepth describes the color capability available to a renderer.
 // ColorUnknown means that the consumer has not determined a specific depth;
 // it does not disable color when the output is otherwise interactive.
+//
+// Depth-aware token approximation is deliberately deferred: Resolve returns
+// semantic hex tokens for truecolor/dark/light/high-contrast roles regardless
+// of ColorANSI16 or ColorANSI256. Adapters (termenv profile, Lip Gloss, or a
+// future brand/ansi package) own mapping those tokens onto the available depth.
+// Only ColorNone participates in ForcesPlain(). Consumers that need to assert
+// profile selection should inspect ColorDepth directly rather than expecting
+// Resolve to rewrite Accent/Status hex values.
 type ColorDepth uint8
 
 const (
@@ -55,6 +63,17 @@ type Capabilities struct {
 func (c Capabilities) ForcesPlain() bool {
 	return !c.IsTTY || c.ColorDepth == ColorNone || c.NoColor ||
 		c.ContinuousIntegration || c.DumbTerminal
+}
+
+// AllowMotion reports whether decorative animation is permitted.
+// Motion is disabled when ReducedMotion is set or when ForcesPlain() applies
+// (pipes, CI, NO_COLOR, dumb terminals, no color support).
+//
+// Logo helpers such as FrameForCapabilities and FlameFrameFor consult this
+// method so adopters do not re-implement the policy. Raw FrameFor/FlameFrame
+// remain available for callers that already resolved motion themselves.
+func (c Capabilities) AllowMotion() bool {
+	return !c.ReducedMotion && !c.ForcesPlain()
 }
 
 // Palette contains semantic colors shared by Obedience Corp terminal UIs.

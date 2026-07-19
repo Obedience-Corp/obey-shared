@@ -7,6 +7,13 @@ import (
 	"github.com/Obedience-Corp/obey-shared/brand"
 )
 
+// SparkField allocation caps mirror Rule's width bound so absurd terminal
+// dimensions cannot force unbounded per-tick allocations.
+const (
+	maxSparkWidth  = 300
+	maxSparkHeight = 100
+)
+
 // SmallFlame renders a compact two-line fire mark for reduced motion or tight
 // headers.
 func SmallFlame(styles Styles) string {
@@ -17,7 +24,20 @@ func SmallFlame(styles Styles) string {
 
 // Flame renders a deterministic breathing flame at frame index. heightScale
 // is clamped to 0..1 and controls how many bottom lines are shown.
+//
+// This path does not apply reduced-motion policy. Prefer FlameFor when the
+// caller has resolved brand.Capabilities.
 func Flame(frame int, heightScale float64, styles Styles) string {
+	return renderFlame(brand.FlameFrame(frame), heightScale, styles)
+}
+
+// FlameFor renders a flame frame that respects caps.AllowMotion(). When
+// motion is disabled the static full flame is used regardless of frame.
+func FlameFor(frame int, heightScale float64, styles Styles, caps brand.Capabilities) string {
+	return renderFlame(brand.FlameFrameFor(frame, caps), heightScale, styles)
+}
+
+func renderFlame(frame brand.Frame, heightScale float64, styles Styles) string {
 	if heightScale < 0 {
 		heightScale = 0
 	}
@@ -25,7 +45,7 @@ func Flame(frame int, heightScale float64, styles Styles) string {
 		heightScale = 1
 	}
 
-	lines := brand.FlameFrame(frame).Lines()
+	lines := frame.Lines()
 	lineCount := 2 + int(float64(len(lines)-2)*heightScale)
 	if lineCount > len(lines) {
 		lineCount = len(lines)
@@ -62,6 +82,7 @@ func Wordmark(styles Styles) string {
 
 // SparkField describes a deterministic field of drifting embers. Tick
 // ownership and cancellation remain with the consuming TUI.
+// Width and Height are clamped on Render so large terminal reports stay bounded.
 type SparkField struct {
 	Width  int
 	Height int
@@ -69,21 +90,30 @@ type SparkField struct {
 }
 
 // Render draws the spark field without querying terminal state or starting
-// background work.
+// background work. Width is capped at 300 and Height at 100 (same spirit as
+// Rule's width bound). Values below the minimum return empty output.
 func (field SparkField) Render(styles Styles) string {
-	if field.Width < 4 || field.Height < 1 {
+	width := field.Width
+	height := field.Height
+	if width > maxSparkWidth {
+		width = maxSparkWidth
+	}
+	if height > maxSparkHeight {
+		height = maxSparkHeight
+	}
+	if width < 4 || height < 1 {
 		return ""
 	}
 
-	lines := make([]string, 0, field.Height)
-	for y := 0; y < field.Height; y++ {
-		row := make([]rune, field.Width)
+	lines := make([]string, 0, height)
+	for y := 0; y < height; y++ {
+		row := make([]rune, width)
 		for x := range row {
 			row[x] = ' '
 		}
 		for i := 0; i < 3; i++ {
 			phase := field.Tick*2 + y*7 + i*13
-			x := int(math.Abs(float64(phase*3+y))) % field.Width
+			x := int(math.Abs(float64(phase*3+y))) % width
 			glyphs := []rune{'.', '·', '*', '°'}
 			row[x] = glyphs[positiveMod(phase+i, len(glyphs))]
 		}
@@ -97,7 +127,9 @@ func (field SparkField) Render(styles Styles) string {
 	return strings.Join(lines, "\n")
 }
 
-// Celebrate renders a short deterministic spark burst and status line.
+// Celebrate renders a short deterministic spark burst only.
+// Product status copy (installer slogans, completion messages, localization)
+// stays with the consumer; compose a message outside this helper.
 func Celebrate(frame int, styles Styles) string {
 	patterns := []string{
 		"  *  .  *  .  *  ",
@@ -108,14 +140,7 @@ func Celebrate(frame int, styles Styles) string {
 	if frame < 0 {
 		frame = 0
 	}
-	return styles.FireTip.Render(patterns[frame%len(patterns)]) + "\n" + styles.OK.Render("  ready — the fire is lit")
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
+	return styles.FireTip.Render(patterns[frame%len(patterns)])
 }
 
 func positiveMod(value, divisor int) int {
