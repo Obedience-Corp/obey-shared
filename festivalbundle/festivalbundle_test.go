@@ -87,7 +87,4 @@ func TestAPIStubsNotImplemented(t *testing.T) {
 	if err := festivalbundle.Verify(ctx, "x.festival"); !errors.Is(err, festivalbundle.ErrNotImplemented) {
 		t.Fatalf("Verify: want ErrNotImplemented, got %v", err)
 	}
-	if _, err := festivalbundle.PayloadContentID(ctx, "."); !errors.Is(err, festivalbundle.ErrNotImplemented) {
-		t.Fatalf("PayloadContentID: want ErrNotImplemented, got %v", err)
-	}
 }

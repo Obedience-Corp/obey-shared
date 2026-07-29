@@ -49,13 +49,4 @@ func Verify(ctx context.Context, festivalPath string) error {
 	return ErrNotImplemented
 }
 
-// PayloadContentID returns the SPEC §7 content hash for an on-disk bundle root
-// that contains a payload/ directory (e.g. an extracted archive).
-// Result form: "sha256:" + 64 lowercase hex digits.
-func PayloadContentID(ctx context.Context, bundleRoot string) (string, error) {
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-	_ = bundleRoot
-	return "", ErrNotImplemented
-}
+// PayloadContentID is implemented in hash.go (SPEC §7).
