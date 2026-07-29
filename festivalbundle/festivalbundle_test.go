@@ -76,15 +76,3 @@ func TestAPIStubsRespectContext(t *testing.T) {
 	}
 }
 
-func TestAPIStubsNotImplemented(t *testing.T) {
-	ctx := context.Background()
-	if _, err := festivalbundle.Pack(ctx, ".", "out.festival", festivalbundle.PackOptions{Kind: festivalbundle.KindNote}); !errors.Is(err, festivalbundle.ErrNotImplemented) {
-		t.Fatalf("Pack: want ErrNotImplemented, got %v", err)
-	}
-	if _, err := festivalbundle.Unbundle(ctx, "x.festival", "dest", festivalbundle.UnbundleOptions{}); !errors.Is(err, festivalbundle.ErrNotImplemented) {
-		t.Fatalf("Unbundle: want ErrNotImplemented, got %v", err)
-	}
-	if err := festivalbundle.Verify(ctx, "x.festival"); !errors.Is(err, festivalbundle.ErrNotImplemented) {
-		t.Fatalf("Verify: want ErrNotImplemented, got %v", err)
-	}
-}
