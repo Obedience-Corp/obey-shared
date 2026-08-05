@@ -63,21 +63,18 @@ func TestRender_StyleOverride(t *testing.T) {
 	}
 }
 
-// TestRender_AutoStyleCompletesWithoutBlocking exercises the default "auto"
-// style branch of renderGlamour (no WithStyle override), which asks
-// glamour/termenv to detect the terminal's background color via
-// termenv.HasDarkBackground(). That detection is independent of
-// WithForceTTY and WithWriter: it queries termenv's own default Output,
-// which is bound to the process's real os.Stdout. termenv only attempts
-// the OSC 11 background-color query when it independently sees os.Stdout
-// as a real TTY; when it does and the terminal never answers (a "mute"
-// pty), termenv blocks for up to its own 5s OSC query timeout before
-// falling back. That was the original bug: a 5-second freeze on session
-// startup. In this test process os.Stdout is not a TTY, so termenv should
-// skip the query and this should return almost immediately. The bounded
-// wait below exists so that if a future change reintroduces an unguarded
-// or unbounded terminal query on this path, the test fails fast with a
-// clear message instead of hanging the whole suite.
+// TestRender_AutoStyleCompletesWithoutBlocking reaches renderGlamour's default
+// "auto" style (no WithStyle override) and asserts the call returns promptly.
+//
+// Coverage note: under go test / CI, os.Stdout is not a TTY, so glamour's
+// auto path selects NoTTYStyleConfig and does not call
+// termenv.HasDarkBackground() / OSC 11. This test is therefore a hang
+// tripwire for the auto branch under non-TTY stdout — not a regression for
+// the original mute-pty freeze (which needs a real unresponsive TTY on the
+// process stdout). WithForceTTY only affects mdrender's own TTY gating; it
+// does not make glamour treat stdout as a TTY. The 2s bound is well under
+// termenv's ~5s OSCTimeout so a future always-on blocking query on this
+// path still fails the suite quickly instead of hanging indefinitely.
 func TestRender_AutoStyleCompletesWithoutBlocking(t *testing.T) {
 	done := make(chan string, 1)
 	go func() {
@@ -90,7 +87,7 @@ func TestRender_AutoStyleCompletesWithoutBlocking(t *testing.T) {
 			t.Errorf("expected glamour-rendered output for auto style, got raw markdown passthrough")
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("Render with default auto style did not return within 2s; a terminal background-color query may be blocking unguarded (see termenv OSCTimeout)")
+		t.Fatal("Render with default auto style did not return within 2s under non-TTY stdout (auto branch hang tripwire)")
 	}
 }
 
