@@ -3,6 +3,7 @@ package mdrender
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 const testMarkdown = `# Hello World
@@ -59,6 +60,37 @@ func TestRender_StyleOverride(t *testing.T) {
 	light := Render(testMarkdown, WithForceTTY(true), WithWidth(80), WithStyle("light"))
 	if dark == "" || light == "" {
 		t.Errorf("expected non-empty output for both styles")
+	}
+}
+
+// TestRender_AutoStyleCompletesWithoutBlocking exercises the default "auto"
+// style branch of renderGlamour (no WithStyle override), which asks
+// glamour/termenv to detect the terminal's background color via
+// termenv.HasDarkBackground(). That detection is independent of
+// WithForceTTY and WithWriter: it queries termenv's own default Output,
+// which is bound to the process's real os.Stdout. termenv only attempts
+// the OSC 11 background-color query when it independently sees os.Stdout
+// as a real TTY; when it does and the terminal never answers (a "mute"
+// pty), termenv blocks for up to its own 5s OSC query timeout before
+// falling back. That was the original bug: a 5-second freeze on session
+// startup. In this test process os.Stdout is not a TTY, so termenv should
+// skip the query and this should return almost immediately. The bounded
+// wait below exists so that if a future change reintroduces an unguarded
+// or unbounded terminal query on this path, the test fails fast with a
+// clear message instead of hanging the whole suite.
+func TestRender_AutoStyleCompletesWithoutBlocking(t *testing.T) {
+	done := make(chan string, 1)
+	go func() {
+		done <- Render(testMarkdown, WithForceTTY(true), WithWidth(80))
+	}()
+
+	select {
+	case result := <-done:
+		if result == testMarkdown {
+			t.Errorf("expected glamour-rendered output for auto style, got raw markdown passthrough")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Render with default auto style did not return within 2s; a terminal background-color query may be blocking unguarded (see termenv OSCTimeout)")
 	}
 }
 
