@@ -1,13 +1,14 @@
-// Command buildutil runs the shared build/test dashboard for obey-shared.
+// Command buildutil runs the live test/lint dashboard for obey-shared.
 //
-// obey-shared is a library (no binary), so it uses buildutil in library mode:
+// The dashboard implementation lives in github.com/Obedience-Corp/build-util.
+// obey-shared is a library (no binary), so this wrapper uses library mode:
 // only test/lint/coverage/clean/all are supported.
 package main
 
 import (
 	"os"
 
-	"github.com/Obedience-Corp/obey-shared/buildutil"
+	buildutil "github.com/Obedience-Corp/build-util"
 )
 
 func main() {
