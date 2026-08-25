@@ -1,6 +1,6 @@
 # Test recipes for obey-shared
-# Most recipes delegate to the shared buildutil dashboard running in
-# library mode (see cmd/buildutil).
+# Most recipes delegate to github.com/Obedience-Corp/build-util via
+# cmd/buildutil (library mode: test/lint/coverage/clean/all).
 
 # Show available test commands
 [private]

@@ -3,6 +3,7 @@ module github.com/Obedience-Corp/obey-shared
 go 1.25.6
 
 require (
+	github.com/Obedience-Corp/build-util v0.1.0
 	github.com/charmbracelet/glamour v0.10.0
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
 	github.com/mattn/go-runewidth v0.0.16
