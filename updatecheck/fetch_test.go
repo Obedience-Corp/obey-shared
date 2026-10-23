@@ -116,3 +116,45 @@ func TestFetchHonorsCallerCancellation(t *testing.T) {
 		t.Errorf("returned after %v despite cancellation", elapsed)
 	}
 }
+
+// A renamed repo answers with a same-host redirect, which is followed.
+func TestFetchFollowsSameHostRedirect(t *testing.T) {
+	srv := newReleaseServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/moved" {
+			http.Redirect(w, r, "/moved", http.StatusMovedPermanently)
+			return
+		}
+		serveTag("v0.3.24")(w, r)
+	})
+	rel, err := srv.fetcher().fetchLatestStable(context.Background())
+	if err != nil || rel.Version != "0.3.24" {
+		t.Fatalf("release = %+v, err = %v", rel, err)
+	}
+}
+
+// A redirect elsewhere is not followed, and server-chosen URL text never
+// reaches the error.
+func TestFetchKeepsRedirectTextOutOfErrors(t *testing.T) {
+	cross := newReleaseServer(t, func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://127.0.0.1:1/SERVER-TEXT", http.StatusFound)
+	})
+	_, err := cross.fetcher().fetchLatestStable(context.Background())
+	if !errors.Is(err, ErrReleaseStatus) || strings.Contains(err.Error(), "SERVER-TEXT") {
+		t.Errorf("cross-host redirect: err = %v", err)
+	}
+
+	same := newReleaseServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			http.Redirect(w, r, "/SERVER-TEXT", http.StatusFound)
+			return
+		}
+		conn, _, hijackErr := w.(http.Hijacker).Hijack()
+		if hijackErr == nil {
+			_ = conn.Close()
+		}
+	})
+	_, err = same.fetcher().fetchLatestStable(context.Background())
+	if err == nil || strings.Contains(err.Error(), "SERVER-TEXT") {
+		t.Errorf("same-host redirect then dropped connection: err = %v", err)
+	}
+}

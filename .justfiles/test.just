@@ -31,9 +31,9 @@ coverage-html: coverage
 lint:
     go run ./cmd/buildutil lint
 
-# Run clean + lint + test + coverage via the dashboard
+# Run clean + lint + test + coverage via the dashboard, then the container_fs lane
 [no-cd]
-ci:
+ci: && container-fs
     go run ./cmd/buildutil all
 
 # Run all tests with race detection (raw go test)
@@ -46,13 +46,12 @@ race:
 pkg package:
     go test -count=1 -v ./{{package}}/...
 
-# Run container_fs-tagged tests in a Linux container with no network. The host
-# only vets and cross-compiles; every file the tests create lives in the container.
+# Run container_fs-tagged tests in a no-network Linux container (host only compiles)
 [no-cd]
 container-fs image="alpine:3.22":
     #!/usr/bin/env bash
     set -euo pipefail
-    pkgs=$(grep -rl --include='*_test.go' '^//go:build container_fs' . | xargs -n1 dirname | sort -u)
+    pkgs=$(grep -rl --include='*_test.go' '^//go:build container_fs' . | sed 's#/[^/]*$##' | sort -u || true)
     if [ -z "$pkgs" ]; then echo "no container_fs tests"; exit 0; fi
     go vet -tags container_fs $pkgs
     case "$(docker info --format '{{{{.Architecture}}')" in

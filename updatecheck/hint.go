@@ -14,12 +14,16 @@ const (
 	suiteModulePrefix = "github.com/Obedience-Corp/"
 )
 
-var homebrewPrefixes = []string{
-	"/opt/homebrew/",
-	"/usr/local/cellar/",
+// homebrewStores are the Cellar and Caskroom dirs of the default Homebrew
+// prefixes, matching the hub's brewOwns. A bare prefix is not enough: npm's
+// global root under /opt/homebrew/lib is not a cask install.
+var homebrewStores = []string{
+	"/opt/homebrew/caskroom/",
+	"/opt/homebrew/cellar/",
 	"/usr/local/caskroom/",
-	"/usr/local/homebrew/",
-	"/home/linuxbrew/.linuxbrew/",
+	"/usr/local/cellar/",
+	"/home/linuxbrew/.linuxbrew/caskroom/",
+	"/home/linuxbrew/.linuxbrew/cellar/",
 }
 
 // ResolveUpgradeHint picks the upgrade action for the binary at
@@ -29,8 +33,10 @@ var homebrewPrefixes = []string{
 //     PATH: run "festival update", which knows the install origin. A binary
 //     counts only if its Go build info names an Obedience-Corp module, since
 //     Debian and Ubuntu ship an unrelated speech synthesizer as
-//     /usr/bin/festival.
-//  2. an obvious Homebrew prefix: run "brew upgrade --cask festival"
+//     /usr/bin/festival. npm installs keep the binary as festival-bin beside a
+//     node shim named festival.
+//  2. a resolved path in a Homebrew Cellar or Caskroom: run
+//     "brew upgrade --cask festival"
 //  3. otherwise: see the latest release page
 func ResolveUpgradeHint(executablePath string) UpgradeHint {
 	exe := resolveExecutable(executablePath)
@@ -58,17 +64,26 @@ func resolveExecutable(p string) string {
 }
 
 func festivalAvailable(exe string) bool {
-	if exe != "" {
-		name := festivalBinary
-		if runtime.GOOS == "windows" {
-			name += ".exe"
-		}
-		if isSuiteFestival(filepath.Join(filepath.Dir(exe), name)) {
-			return true
-		}
+	if exe != "" && suiteFestivalAt(filepath.Join(filepath.Dir(exe), festivalBinary)) {
+		return true
 	}
 	p, err := exec.LookPath(festivalBinary)
-	return err == nil && isSuiteFestival(p)
+	if err != nil {
+		return false
+	}
+	if resolved, err := filepath.EvalSymlinks(p); err == nil {
+		p = resolved
+	}
+	return isSuiteFestival(p) || suiteFestivalAt(p)
+}
+
+// suiteFestivalAt checks the hub's file names for base: festival.exe on
+// Windows, else festival and npm's festival-bin.
+func suiteFestivalAt(base string) bool {
+	if runtime.GOOS == "windows" {
+		return isSuiteFestival(base + ".exe")
+	}
+	return isSuiteFestival(base) || isSuiteFestival(base+"-bin")
 }
 
 func isSuiteFestival(p string) bool {
@@ -95,8 +110,8 @@ func isHomebrewPath(p string) bool {
 		return false
 	}
 	p = strings.ToLower(filepath.ToSlash(p))
-	for _, prefix := range homebrewPrefixes {
-		if strings.HasPrefix(p, prefix) {
+	for _, store := range homebrewStores {
+		if strings.HasPrefix(p, store) {
 			return true
 		}
 	}

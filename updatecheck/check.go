@@ -2,7 +2,6 @@ package updatecheck
 
 import (
 	"context"
-	"net/http"
 	"time"
 )
 
@@ -45,9 +44,10 @@ type Options struct {
 // It does no I/O at all when suiteVersion is not a release version (empty
 // means a non-suite build) or when Suppress says so. Otherwise it reads the
 // cache, refreshes within AmbientTimeout if the cache is older than CacheTTL
-// and no refresh failed within RetryBackoff, and applies the D3 display policy. The notice is returned only after the
-// notified state is persisted, so a read-only home cannot cause a notice on
-// every command.
+// and no refresh failed within RetryBackoff, and applies the D3 display
+// policy. A caller that cancels during the refresh gets no notice and no
+// write. The notice is returned only after the notified state is persisted,
+// so a read-only home cannot cause a notice on every command.
 func MaybeNotify(ctx context.Context, suiteVersion string, opts Options) *Notice {
 	if !IsReleaseVersion(suiteVersion) || AmbientSuppressed(opts.Suppress) || ctx.Err() != nil {
 		return nil
@@ -63,6 +63,9 @@ func MaybeNotify(ctx context.Context, suiteVersion string, opts Options) *Notice
 	}
 
 	cache, dirty := refreshAmbient(ctx, cache, now, opts)
+	if ctx.Err() != nil {
+		return nil
+	}
 	notify := shouldAmbientNotify(cache, suiteVersion, now, opts.NotifyMinGap)
 	if notify {
 		markNotified(cache, now)
@@ -190,7 +193,7 @@ func fetchWithBudget(ctx context.Context, opts Options, timeout time.Duration) (
 	defer cancel()
 	f := *opts.Fetcher
 	if f.HTTPClient == nil {
-		f.HTTPClient = &http.Client{Timeout: timeout}
+		f.HTTPClient = budgetClient(timeout)
 	}
 	return f.fetchLatestStable(ctx)
 }

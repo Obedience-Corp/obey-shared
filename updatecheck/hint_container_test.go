@@ -136,3 +136,43 @@ func TestHintDefaultsToRunningExecutable(t *testing.T) {
 		t.Errorf("hint = %+v, want %+v", got, seeHint)
 	}
 }
+
+// npm global install: the package's bin/ holds node shims named camp, fest,
+// festival and the Go binaries as camp-bin, fest-bin, festival-bin; the
+// prefix's bin/ symlinks to the shims.
+func npmInstall(t *testing.T) (prefixBin, pkgBin string) {
+	t.Helper()
+	root := t.TempDir()
+	pkgBin = filepath.Join(root, "lib", "node_modules", "@obedience-corp", "festival", "bin")
+	prefixBin = filepath.Join(root, "bin")
+	for _, name := range []string{"camp", "fest", "festival"} {
+		touch(t, filepath.Join(pkgBin, name), 0o755)
+		if err := os.MkdirAll(prefixBin, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(filepath.Join(pkgBin, name), filepath.Join(prefixBin, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	touch(t, filepath.Join(pkgBin, "camp-bin"), 0o755)
+	suiteFestival(t, filepath.Join(pkgBin, "festival-bin"))
+	return prefixBin, pkgBin
+}
+
+func TestHintFindsNpmFestivalBinBesideExecutable(t *testing.T) {
+	t.Setenv("PATH", "")
+	_, pkgBin := npmInstall(t)
+
+	if got := ResolveUpgradeHint(filepath.Join(pkgBin, "camp-bin")); got != festivalHint {
+		t.Errorf("hint = %+v, want %+v", got, festivalHint)
+	}
+}
+
+func TestHintFindsNpmFestivalShimOnPath(t *testing.T) {
+	prefixBin, _ := npmInstall(t)
+	t.Setenv("PATH", prefixBin)
+
+	if got := ResolveUpgradeHint(absentExe); got != festivalHint {
+		t.Errorf("hint = %+v, want %+v", got, festivalHint)
+	}
+}

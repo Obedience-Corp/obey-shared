@@ -7,16 +7,19 @@ import (
 
 func TestIsHomebrewPath(t *testing.T) {
 	tests := map[string]bool{
-		"/opt/homebrew/Caskroom/festival/0.3.24/camp":    true,
-		"/opt/homebrew/bin/camp":                         true,
-		"/usr/local/Caskroom/festival/0.3.24/camp":       true,
-		"/usr/local/Cellar/festival/0.3.24/bin/fest":     true,
-		"/home/linuxbrew/.linuxbrew/Caskroom/f/1/camp":   true,
-		"/usr/local/bin/camp":                            false,
-		"/Users/me/src/homebrew/camp":                    false,
-		"/Users/me/.obey/installer/bin/camp":             false,
-		"/home/me/.local/bin/camp":                       false,
-		"/usr/lib/node_modules/@obedience-corp/bin/camp": false,
+		"/opt/homebrew/Caskroom/festival/0.3.24/camp":                          true,
+		"/opt/homebrew/Cellar/festival/0.3.24/bin/camp":                        true,
+		"/usr/local/Caskroom/festival/0.3.24/camp":                             true,
+		"/usr/local/Cellar/festival/0.3.24/bin/fest":                           true,
+		"/home/linuxbrew/.linuxbrew/Caskroom/f/1/camp":                         true,
+		"/home/linuxbrew/.linuxbrew/Cellar/f/1/bin/camp":                       true,
+		"/opt/homebrew/bin/camp":                                               false,
+		"/opt/homebrew/lib/node_modules/@obedience-corp/festival/bin/camp-bin": false,
+		"/usr/local/bin/camp":                                                  false,
+		"/Users/me/src/homebrew/camp":                                          false,
+		"/Users/me/.obey/installer/bin/camp":                                   false,
+		"/home/me/.local/bin/camp":                                             false,
+		"/usr/lib/node_modules/@obedience-corp/bin/camp":                       false,
 		"": false,
 	}
 	for p, want := range tests {

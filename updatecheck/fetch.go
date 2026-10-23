@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"time"
 )
 
 const maxReleaseBody = 1 << 20
@@ -35,20 +37,20 @@ type Fetcher struct {
 // credentials, so a stale token in the environment cannot turn every check
 // into a 401.
 func (f *Fetcher) fetchLatestStable(ctx context.Context) (release, error) {
-	url := f.URL
-	if url == "" {
-		url = DefaultReleaseURL
+	endpoint := f.URL
+	if endpoint == "" {
+		endpoint = DefaultReleaseURL
 	}
 	client := f.HTTPClient
 	if client == nil {
-		client = &http.Client{Timeout: ExplicitTimeout}
+		client = budgetClient(ExplicitTimeout)
 	}
 	ua := f.UserAgent
 	if ua == "" {
 		ua = "obey-shared-updatecheck"
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return release{}, fmt.Errorf("updatecheck: build release request: %w", err)
 	}
@@ -58,6 +60,11 @@ func (f *Fetcher) fetchLatestStable(ctx context.Context) (release, error) {
 
 	resp, err := client.Do(req)
 	if err != nil {
+		// url.Error carries the request URL, which a redirect can set.
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			err = urlErr.Err
+		}
 		return release{}, fmt.Errorf("updatecheck: fetch latest release: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -81,6 +88,22 @@ func (f *Fetcher) fetchLatestStable(ctx context.Context) (release, error) {
 		return release{}, ErrInvalidRelease
 	}
 	return releaseFromTag(raw.TagName), nil
+}
+
+// budgetClient follows redirects only within the original scheme and host
+// (a renamed repo), so a redirect cannot steer the request or its error text
+// to a server-chosen host.
+func budgetClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			first := via[0].URL
+			if len(via) >= 5 || req.URL.Scheme != first.Scheme || req.URL.Host != first.Host {
+				return http.ErrUseLastResponse
+			}
+			return nil
+		},
+	}
 }
 
 func releaseFromTag(tag string) release {

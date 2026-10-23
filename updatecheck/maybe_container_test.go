@@ -321,3 +321,26 @@ func TestGatedCallsCreateNothing(t *testing.T) {
 		t.Errorf("gated call rewrote the cache:\n%s\n->\n%s", before, after)
 	}
 }
+
+// Ctrl-C during the refresh is the caller giving up, not the network failing,
+// so it must not start a retry backoff.
+func TestCallerCancelRecordsNoAttempt(t *testing.T) {
+	path := cachePath(t)
+	seed(t, path, cacheWith("0.3.24", t0))
+	srv := newBlockingServer(t)
+	now := t0.Add(48 * time.Hour)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+	requireNoNotice(t, MaybeNotify(ctx, "v0.3.23", ambient(t, path, srv, now)))
+	if c := mustLoad(t, path); !c.LastAttemptAt.IsZero() {
+		t.Fatalf("cancel recorded an attempt: %+v", c)
+	}
+
+	srv.serve(serveTag("v0.3.25"))
+	requireNotice(t, MaybeNotify(context.Background(), "v0.3.23", ambient(t, path, srv, now)), "0.3.25")
+	srv.requireHits(t, 2)
+}
