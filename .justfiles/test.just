@@ -70,5 +70,11 @@ container-fs image="alpine:3.22":
     done
     cid=$(docker create --network none {{image}} sh -c 'set -e; for t in /t/*.test; do echo "== $t"; "$t" -test.v -test.count=1; done')
     docker cp "$out/." "$cid:/t"
-    docker start -a "$cid" || true
-    exit "$(docker inspect --format '{{{{.State.ExitCode}}' "$cid")"
+    status=0
+    docker start -a "$cid" || status=$?
+    state=$(docker inspect --format '{{{{.State.Status}}' "$cid")
+    if [ "$state" != "exited" ]; then
+        echo "container-fs: container never ran (state=$state, start status=$status)" >&2
+        exit 1
+    fi
+    exit "$status"

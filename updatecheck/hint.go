@@ -1,6 +1,7 @@
 package updatecheck
 
 import (
+	"debug/buildinfo"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -8,7 +9,10 @@ import (
 	"strings"
 )
 
-const festivalBinary = "festival"
+const (
+	festivalBinary    = "festival"
+	suiteModulePrefix = "github.com/Obedience-Corp/"
+)
 
 var homebrewPrefixes = []string{
 	"/opt/homebrew/",
@@ -21,8 +25,11 @@ var homebrewPrefixes = []string{
 // ResolveUpgradeHint picks the upgrade action for the binary at
 // executablePath ("" means os.Executable):
 //
-//  1. a festival binary beside the symlink-resolved executable, or on PATH:
-//     run "festival update", which knows the install origin
+//  1. the suite's festival hub beside the symlink-resolved executable, or on
+//     PATH: run "festival update", which knows the install origin. A binary
+//     counts only if its Go build info names an Obedience-Corp module, since
+//     Debian and Ubuntu ship an unrelated speech synthesizer as
+//     /usr/bin/festival.
 //  2. an obvious Homebrew prefix: run "brew upgrade --cask festival"
 //  3. otherwise: see the latest release page
 func ResolveUpgradeHint(executablePath string) UpgradeHint {
@@ -56,12 +63,23 @@ func festivalAvailable(exe string) bool {
 		if runtime.GOOS == "windows" {
 			name += ".exe"
 		}
-		if isExecutableFile(filepath.Join(filepath.Dir(exe), name)) {
+		if isSuiteFestival(filepath.Join(filepath.Dir(exe), name)) {
 			return true
 		}
 	}
-	_, err := exec.LookPath(festivalBinary)
-	return err == nil
+	p, err := exec.LookPath(festivalBinary)
+	return err == nil && isSuiteFestival(p)
+}
+
+func isSuiteFestival(p string) bool {
+	if !isExecutableFile(p) {
+		return false
+	}
+	bi, err := buildinfo.ReadFile(p)
+	if err != nil {
+		return false
+	}
+	return strings.HasPrefix(bi.Main.Path, suiteModulePrefix) || strings.HasPrefix(bi.Path, suiteModulePrefix)
 }
 
 func isExecutableFile(p string) bool {

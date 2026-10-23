@@ -7,10 +7,11 @@
 // version. An empty suite version marks a non-suite build, and the package then
 // does nothing at all: no cache read, no network, no output.
 //
-// MaybeNotify is the ambient path. It is cache-first, refreshes at most once
-// per DefaultCacheTTL within AmbientTimeout, fails open, and returns a Notice at
-// most once per new release per machine with DefaultNotifyMinGap between
-// notices. Check is the explicit "version --check" path.
+// MaybeNotify is the ambient path. It is cache-first and fails open. It
+// refreshes within AmbientTimeout, at most once per DefaultCacheTTL after a
+// success and once per DefaultRetryBackoff after a failure, and returns a
+// Notice at most once per new release per machine with DefaultNotifyMinGap
+// between notices. Check is the explicit "version --check" path.
 //
 // The package never installs or upgrades anything. The upgrade hint is computed
 // locally; the only server-derived string that can reach a terminal is a

@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func TestFetchLatestStableParsesTagAndIgnoresServerURL(t *testing.T) {
+func TestFetchParsesTagAndIgnoresServerURL(t *testing.T) {
 	var gotUA, gotAccept, gotAuth string
 	srv := newReleaseServer(t, func(w http.ResponseWriter, r *http.Request) {
 		gotUA, gotAccept, gotAuth = r.UserAgent(), r.Header.Get("Accept"), r.Header.Get("Authorization")
@@ -18,11 +18,11 @@ func TestFetchLatestStableParsesTagAndIgnoresServerURL(t *testing.T) {
 	t.Setenv("GH_TOKEN", "host-token-must-not-leak")
 	t.Setenv("GITHUB_TOKEN", "host-token-must-not-leak")
 
-	rel, err := srv.fetcher().FetchLatestStable(context.Background())
+	rel, err := srv.fetcher().fetchLatestStable(context.Background())
 	if err != nil {
-		t.Fatalf("FetchLatestStable: %v", err)
+		t.Fatalf("fetchLatestStable: %v", err)
 	}
-	want := Release{
+	want := release{
 		TagName: "v0.3.24",
 		Version: "0.3.24",
 		HTMLURL: "https://github.com/Obedience-Corp/festival/releases/tag/v0.3.24",
@@ -38,7 +38,7 @@ func TestFetchLatestStableParsesTagAndIgnoresServerURL(t *testing.T) {
 	}
 }
 
-func TestFetchLatestStableRejectsBadResponses(t *testing.T) {
+func TestFetchRejectsBadResponses(t *testing.T) {
 	tests := []struct {
 		name    string
 		handler http.HandlerFunc
@@ -56,12 +56,14 @@ func TestFetchLatestStableRejectsBadResponses(t *testing.T) {
 		{"build metadata", serveTag("v0.3.24+abc"), ErrInvalidRelease},
 		{"escape sequence", serveTag("v0.3.24\x1b[31m"), ErrInvalidRelease},
 		{"whitespace", serveTag(" v0.3.24"), ErrInvalidRelease},
+		{"prerelease", serveBody(`{"tag_name":"v0.3.25-rc.1","prerelease":true}`), ErrInvalidRelease},
+		{"draft", serveBody(`{"tag_name":"v0.3.25","draft":true}`), ErrInvalidRelease},
 		{"oversized", serveBody(`{"tag_name":"` + strings.Repeat("9", maxReleaseBody) + `"}`), ErrInvalidRelease},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := newReleaseServer(t, tt.handler)
-			_, err := srv.fetcher().FetchLatestStable(context.Background())
+			_, err := srv.fetcher().fetchLatestStable(context.Background())
 			if !errors.Is(err, tt.want) {
 				t.Fatalf("err = %v, want %v", err, tt.want)
 			}

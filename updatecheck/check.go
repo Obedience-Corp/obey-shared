@@ -44,8 +44,8 @@ type Options struct {
 //
 // It does no I/O at all when suiteVersion is not a release version (empty
 // means a non-suite build) or when Suppress says so. Otherwise it reads the
-// cache, refreshes within AmbientTimeout if the cache is older than CacheTTL,
-// and applies the D3 display policy. The notice is returned only after the
+// cache, refreshes within AmbientTimeout if the cache is older than CacheTTL
+// and no refresh failed within RetryBackoff, and applies the D3 display policy. The notice is returned only after the
 // notified state is persisted, so a read-only home cannot cause a notice on
 // every command.
 func MaybeNotify(ctx context.Context, suiteVersion string, opts Options) *Notice {
@@ -77,26 +77,23 @@ func MaybeNotify(ctx context.Context, suiteVersion string, opts Options) *Notice
 	return &n
 }
 
-// refreshAmbient fetches when the cache is stale. After a failure with a
-// cached release it records the attempt so an offline machine pays the
-// timeout at most once per RetryBackoff. It never records an attempt-only
-// cache, so a failed first fetch leaves no file behind.
+// refreshAmbient fetches when the cache is stale. A failure records the
+// attempt, with or without a cached release, so a slow or offline link pays
+// the timeout at most once per RetryBackoff. An attempt-only record carries
+// no release.
 func refreshAmbient(ctx context.Context, cache *Cache, now time.Time, opts Options) (*Cache, bool) {
-	if cacheFresh(cache, now, opts.CacheTTL) {
-		return cache, false
-	}
-	if hasLatest(cache) && recentAttempt(cache, now, opts.RetryBackoff) {
+	if cacheFresh(cache, now, opts.CacheTTL) || recentAttempt(cache, now, opts.RetryBackoff) {
 		return cache, false
 	}
 	rel, err := fetchWithBudget(ctx, opts, AmbientTimeout)
 	if err == nil {
 		return applyRelease(cache, rel, now), true
 	}
-	if hasLatest(cache) {
-		cache.LastAttemptAt = now.UTC()
-		return cache, true
+	if cache == nil {
+		cache = &Cache{}
 	}
-	return cache, false
+	cache.LastAttemptAt = now.UTC()
+	return cache, true
 }
 
 // Check is the explicit "version --check" path. It refreshes within
@@ -188,12 +185,12 @@ func normalizeOptions(opts Options) Options {
 	return opts
 }
 
-func fetchWithBudget(ctx context.Context, opts Options, timeout time.Duration) (Release, error) {
+func fetchWithBudget(ctx context.Context, opts Options, timeout time.Duration) (release, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	f := *opts.Fetcher
 	if f.HTTPClient == nil {
 		f.HTTPClient = &http.Client{Timeout: timeout}
 	}
-	return f.FetchLatestStable(ctx)
+	return f.fetchLatestStable(ctx)
 }

@@ -124,7 +124,7 @@ func within(t, now time.Time, d time.Duration) bool {
 	return !t.IsZero() && !t.After(now) && now.Sub(t) < d
 }
 
-func applyRelease(c *Cache, rel Release, now time.Time) *Cache {
+func applyRelease(c *Cache, rel release, now time.Time) *Cache {
 	if c == nil {
 		c = &Cache{}
 	}

@@ -123,15 +123,36 @@ func TestFailedRefreshFailsOpenOnPriorCache(t *testing.T) {
 	}
 }
 
-func TestFailedFirstFetchLeavesNoFile(t *testing.T) {
+// With no cache yet, a link too slow for the budget must not cost the timeout
+// on every command.
+func TestFailedFirstFetchBacksOff(t *testing.T) {
 	path := cachePath(t)
-	srv := newReleaseServer(t, serveStatus(http.StatusServiceUnavailable))
+	srv := newBlockingServer(t)
 
 	requireNoNotice(t, MaybeNotify(context.Background(), "v0.3.23", ambient(t, path, srv, t0)))
 	srv.requireHits(t, 1)
-	if _, err := os.Stat(filepath.Dir(path)); !os.IsNotExist(err) {
-		t.Errorf("cache dir exists after a failed first fetch: %v", err)
+	c := mustLoad(t, path)
+	if hasLatest(c) || !c.LastAttemptAt.Equal(t0) || !c.CheckedAt.IsZero() {
+		t.Fatalf("attempt record = %+v", c)
 	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "checked_at") || strings.Contains(string(raw), "0001-01-01") {
+		t.Errorf("attempt record carries a zero checked_at: %s", raw)
+	}
+
+	start := time.Now()
+	requireNoNotice(t, MaybeNotify(context.Background(), "v0.3.23", ambient(t, path, srv, t0.Add(DefaultRetryBackoff-time.Second))))
+	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
+		t.Errorf("backed-off call took %v", elapsed)
+	}
+	srv.requireHits(t, 1)
+
+	srv.serve(serveTag("v0.3.24"))
+	requireNotice(t, MaybeNotify(context.Background(), "v0.3.23", ambient(t, path, srv, t0.Add(DefaultRetryBackoff))), "0.3.24")
+	srv.requireHits(t, 2)
 }
 
 func TestRetryBackoffAfterFailedRefresh(t *testing.T) {
@@ -205,7 +226,7 @@ func TestCorruptCacheRecovers(t *testing.T) {
 	requireNoNotice(t, MaybeNotify(context.Background(), "v0.3.23", ambient(t, path, down, t0)))
 
 	up := newReleaseServer(t, serveTag("v0.3.24"))
-	requireNotice(t, MaybeNotify(context.Background(), "v0.3.23", ambient(t, path, up, t0)), "0.3.24")
+	requireNotice(t, MaybeNotify(context.Background(), "v0.3.23", ambient(t, path, up, t0.Add(DefaultRetryBackoff))), "0.3.24")
 	mustLoad(t, path)
 }
 
@@ -216,7 +237,7 @@ func TestTamperedCacheNeverReachesNotice(t *testing.T) {
 	requireNoNotice(t, MaybeNotify(context.Background(), "v0.3.23", ambient(t, path, down, t0)))
 
 	up := newReleaseServer(t, serveTag("v0.3.24"))
-	n := MaybeNotify(context.Background(), "v0.3.23", ambient(t, path, up, t0))
+	n := MaybeNotify(context.Background(), "v0.3.23", ambient(t, path, up, t0.Add(DefaultRetryBackoff)))
 	requireNotice(t, n, "0.3.24")
 	var buf bytes.Buffer
 	n.Render(&buf)

@@ -13,6 +13,24 @@ var (
 	seeHint      = UpgradeHint{Kind: HintSee, Text: DefaultReleasePage}
 )
 
+// suiteFestival copies the running test binary, whose build info names the
+// obey-shared module, to path.
+func suiteFestival(t *testing.T, path string) {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(exe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeRaw(t, path, string(data))
+	if err := os.Chmod(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func touch(t *testing.T, path string, mode os.FileMode) string {
 	t.Helper()
 	writeRaw(t, path, "#!/bin/sh\n")
@@ -41,7 +59,7 @@ func linkedInstall(t *testing.T) (root, linked string) {
 func TestHintPrefersFestivalBesideResolvedExecutable(t *testing.T) {
 	t.Setenv("PATH", "")
 	root, linked := linkedInstall(t)
-	touch(t, filepath.Join(root, "cask", "0.3.24", "festival"), 0o755)
+	suiteFestival(t, filepath.Join(root, "cask", "0.3.24", "festival"))
 
 	if got := ResolveUpgradeHint(linked); got != festivalHint {
 		t.Errorf("hint = %+v, want %+v", got, festivalHint)
@@ -52,7 +70,7 @@ func TestHintPrefersFestivalBesideResolvedExecutable(t *testing.T) {
 func TestHintIgnoresFestivalBesideTheSymlink(t *testing.T) {
 	t.Setenv("PATH", "")
 	root, linked := linkedInstall(t)
-	touch(t, filepath.Join(root, "bin", "festival"), 0o755)
+	suiteFestival(t, filepath.Join(root, "bin", "festival"))
 
 	if got := ResolveUpgradeHint(linked); got != seeHint {
 		t.Errorf("hint = %+v, want %+v", got, seeHint)
@@ -61,12 +79,26 @@ func TestHintIgnoresFestivalBesideTheSymlink(t *testing.T) {
 
 func TestHintFindsFestivalOnPath(t *testing.T) {
 	pathDir := t.TempDir()
-	touch(t, filepath.Join(pathDir, "festival"), 0o755)
+	suiteFestival(t, filepath.Join(pathDir, "festival"))
 	t.Setenv("PATH", pathDir)
 	_, linked := linkedInstall(t)
 
 	if got := ResolveUpgradeHint(linked); got != festivalHint {
 		t.Errorf("hint = %+v, want %+v", got, festivalHint)
+	}
+}
+
+// An executable named festival that is not the suite hub (Debian's speech
+// synthesizer) must never earn "run: festival update", beside or on PATH.
+func TestHintRejectsForeignFestival(t *testing.T) {
+	root, linked := linkedInstall(t)
+	touch(t, filepath.Join(root, "cask", "0.3.24", "festival"), 0o755)
+	pathDir := t.TempDir()
+	touch(t, filepath.Join(pathDir, "festival"), 0o755)
+	t.Setenv("PATH", pathDir)
+
+	if got := ResolveUpgradeHint(linked); got != seeHint {
+		t.Errorf("hint = %+v, want %+v", got, seeHint)
 	}
 }
 

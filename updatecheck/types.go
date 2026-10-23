@@ -27,7 +27,7 @@ const (
 	DefaultNotifyMinGap = 6 * time.Hour
 
 	// DefaultRetryBackoff is how long the ambient path waits after a failed
-	// refresh before trying the network again, when a cached release exists.
+	// refresh before trying the network again.
 	DefaultRetryBackoff = time.Hour
 
 	// AmbientTimeout bounds the network refresh on the ambient path.
@@ -65,7 +65,7 @@ type Cache struct {
 	SchemaVersion       string    `json:"schema_version"`
 	Source              string    `json:"source"`
 	Channel             string    `json:"channel"`
-	CheckedAt           time.Time `json:"checked_at"`
+	CheckedAt           time.Time `json:"checked_at,omitzero"`
 	LatestTag           string    `json:"latest_tag"`
 	LatestVersion       string    `json:"latest_version"`
 	HTMLURL             string    `json:"html_url,omitempty"`
@@ -74,8 +74,7 @@ type Cache struct {
 	LastAttemptAt       time.Time `json:"last_attempt_at,omitzero"`
 }
 
-// Release is a validated stable suite release.
-type Release struct {
+type release struct {
 	TagName string
 	Version string
 	HTMLURL string

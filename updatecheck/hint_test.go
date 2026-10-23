@@ -1,6 +1,9 @@
 package updatecheck
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestIsHomebrewPath(t *testing.T) {
 	tests := map[string]bool{
@@ -35,5 +38,22 @@ func TestResolveUpgradeHintFallbacks(t *testing.T) {
 	see := ResolveUpgradeHint("/updatecheck-test-absent/bin/camp")
 	if see != (UpgradeHint{Kind: HintSee, Text: DefaultReleasePage}) {
 		t.Errorf("unknown path hint = %+v", see)
+	}
+}
+
+// The test binary is a Go binary built from the obey-shared module; /bin/sh is
+// not a Go binary at all, like the speech synthesizer Debian ships as festival.
+func TestIsSuiteFestivalReadsBuildInfo(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isSuiteFestival(exe) {
+		t.Errorf("isSuiteFestival(%q) = false for an Obedience-Corp Go binary", exe)
+	}
+	for _, p := range []string{"/bin/sh", "/updatecheck-test-absent/festival", ""} {
+		if isSuiteFestival(p) {
+			t.Errorf("isSuiteFestival(%q) = true", p)
+		}
 	}
 }
