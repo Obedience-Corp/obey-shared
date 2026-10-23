@@ -144,15 +144,31 @@ func TestFailedFirstFetchBacksOff(t *testing.T) {
 	}
 
 	start := time.Now()
-	requireNoNotice(t, MaybeNotify(context.Background(), "v0.3.23", ambient(t, path, srv, t0.Add(DefaultRetryBackoff-time.Second))))
+	for _, offset := range []time.Duration{time.Second, time.Minute, 10 * time.Minute, 30 * time.Minute, DefaultRetryBackoff - time.Second} {
+		requireNoNotice(t, MaybeNotify(context.Background(), "v0.3.23", ambient(t, path, srv, t0.Add(offset))))
+	}
 	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
-		t.Errorf("backed-off call took %v", elapsed)
+		t.Errorf("5 backed-off calls took %v", elapsed)
 	}
 	srv.requireHits(t, 1)
 
 	srv.serve(serveTag("v0.3.24"))
-	requireNotice(t, MaybeNotify(context.Background(), "v0.3.23", ambient(t, path, srv, t0.Add(DefaultRetryBackoff))), "0.3.24")
+	recovered := t0.Add(DefaultRetryBackoff)
+	requireNotice(t, MaybeNotify(context.Background(), "v0.3.23", ambient(t, path, srv, recovered)), "0.3.24")
 	srv.requireHits(t, 2)
+	c = mustLoad(t, path)
+	if c.LatestVersion != "0.3.24" || !c.CheckedAt.Equal(recovered) || !c.LastAttemptAt.IsZero() ||
+		c.LastNotifiedVersion != "0.3.24" || !c.LastNotifiedAt.Equal(recovered) {
+		t.Fatalf("record after recovery = %+v", c)
+	}
+
+	// D3 on the recovered record: the same version stays quiet from the fresh
+	// cache, and a newer one after the gap notifies.
+	requireNoNotice(t, MaybeNotify(context.Background(), "v0.3.23", ambient(t, path, srv, recovered.Add(time.Hour))))
+	srv.requireHits(t, 2)
+	srv.serve(serveTag("v0.3.25"))
+	requireNotice(t, MaybeNotify(context.Background(), "v0.3.23", ambient(t, path, srv, recovered.Add(DefaultCacheTTL))), "0.3.25")
+	srv.requireHits(t, 3)
 }
 
 func TestRetryBackoffAfterFailedRefresh(t *testing.T) {
