@@ -1,0 +1,116 @@
+package updatecheck
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestFetchLatestStableParsesTagAndIgnoresServerURL(t *testing.T) {
+	var gotUA, gotAccept, gotAuth string
+	srv := newReleaseServer(t, func(w http.ResponseWriter, r *http.Request) {
+		gotUA, gotAccept, gotAuth = r.UserAgent(), r.Header.Get("Accept"), r.Header.Get("Authorization")
+		serveTag("v0.3.24")(w, r)
+	})
+	t.Setenv("GH_TOKEN", "host-token-must-not-leak")
+	t.Setenv("GITHUB_TOKEN", "host-token-must-not-leak")
+
+	rel, err := srv.fetcher().FetchLatestStable(context.Background())
+	if err != nil {
+		t.Fatalf("FetchLatestStable: %v", err)
+	}
+	want := Release{
+		TagName: "v0.3.24",
+		Version: "0.3.24",
+		HTMLURL: "https://github.com/Obedience-Corp/festival/releases/tag/v0.3.24",
+	}
+	if rel != want {
+		t.Errorf("release = %+v, want %+v", rel, want)
+	}
+	if gotAuth != "" {
+		t.Errorf("Authorization = %q, want none", gotAuth)
+	}
+	if gotUA == "" || gotAccept != "application/vnd.github+json" {
+		t.Errorf("User-Agent = %q, Accept = %q", gotUA, gotAccept)
+	}
+}
+
+func TestFetchLatestStableRejectsBadResponses(t *testing.T) {
+	tests := []struct {
+		name    string
+		handler http.HandlerFunc
+		want    error
+	}{
+		{"404", serveStatus(http.StatusNotFound), ErrReleaseStatus},
+		{"rate limited", serveStatus(http.StatusForbidden), ErrReleaseStatus},
+		{"500", serveStatus(http.StatusInternalServerError), ErrReleaseStatus},
+		{"malformed", serveBody("{not json \x1b[2J"), ErrInvalidRelease},
+		{"html", serveBody("<html>captive portal</html>"), ErrInvalidRelease},
+		{"empty body", serveBody(""), ErrInvalidRelease},
+		{"missing tag", serveBody(`{"html_url":"x"}`), ErrInvalidRelease},
+		{"non-semver tag", serveTag("latest"), ErrInvalidRelease},
+		{"two-part tag", serveTag("v0.3"), ErrInvalidRelease},
+		{"build metadata", serveTag("v0.3.24+abc"), ErrInvalidRelease},
+		{"escape sequence", serveTag("v0.3.24\x1b[31m"), ErrInvalidRelease},
+		{"whitespace", serveTag(" v0.3.24"), ErrInvalidRelease},
+		{"oversized", serveBody(`{"tag_name":"` + strings.Repeat("9", maxReleaseBody) + `"}`), ErrInvalidRelease},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := newReleaseServer(t, tt.handler)
+			_, err := srv.fetcher().FetchLatestStable(context.Background())
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("err = %v, want %v", err, tt.want)
+			}
+			if strings.Contains(err.Error(), "\x1b") || strings.Contains(err.Error(), "captive") {
+				t.Errorf("error carries server content: %q", err)
+			}
+		})
+	}
+}
+
+func TestFetchWithBudgetStopsAtAmbientTimeout(t *testing.T) {
+	srv := newBlockingServer(t)
+	start := time.Now()
+	_, err := fetchWithBudget(context.Background(), Options{Fetcher: srv.fetcher()}, AmbientTimeout)
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("blocked server returned a release")
+	}
+	if elapsed > AmbientTimeout+300*time.Millisecond {
+		t.Errorf("returned after %v, budget is %v", elapsed, AmbientTimeout)
+	}
+}
+
+// A caller-supplied client without a timeout is still bounded by the budget.
+func TestFetchWithBudgetBoundsCallerClient(t *testing.T) {
+	srv := newBlockingServer(t)
+	f := &Fetcher{URL: srv.URL, HTTPClient: &http.Client{}}
+	start := time.Now()
+	if _, err := fetchWithBudget(context.Background(), Options{Fetcher: f}, AmbientTimeout); err == nil {
+		t.Fatal("blocked server returned a release")
+	}
+	if elapsed := time.Since(start); elapsed > AmbientTimeout+300*time.Millisecond {
+		t.Errorf("returned after %v, budget is %v", elapsed, AmbientTimeout)
+	}
+}
+
+func TestFetchHonorsCallerCancellation(t *testing.T) {
+	srv := newBlockingServer(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+	start := time.Now()
+	_, err := fetchWithBudget(ctx, Options{Fetcher: srv.fetcher()}, ExplicitTimeout)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("returned after %v despite cancellation", elapsed)
+	}
+}
