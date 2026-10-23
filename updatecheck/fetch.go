@@ -76,7 +76,7 @@ func (f *Fetcher) fetchLatestStable(ctx context.Context) (release, error) {
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, maxReleaseBody)).Decode(&raw); err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return release{}, fmt.Errorf("updatecheck: read latest release: %w", ctxErr)
+			return release{}, newFetchError(ctxErr)
 		}
 		return release{}, ErrInvalidRelease
 	}

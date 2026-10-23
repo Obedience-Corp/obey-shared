@@ -126,6 +126,7 @@ func TestCheckCancelDuringFetchReturnsContextError(t *testing.T) {
 	if !errors.Is(err, context.Canceled) || res != (Result{}) {
 		t.Errorf("Check = %+v, %v; want zero Result and context.Canceled", res, err)
 	}
+	srv.requireHits(t, 1)
 }
 
 // When persisting notify state fails, no notice is shown, so a read-only home

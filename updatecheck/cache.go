@@ -14,7 +14,7 @@ import (
 const maxCacheBytes = 64 << 10
 
 // ErrCorruptCache means suite.json is not a regular file, is too large, is
-// not JSON, or carries another schema version.
+// not JSON, or carries another schema version. It never includes file content.
 var ErrCorruptCache = errors.New("updatecheck: corrupt or unsupported cache")
 
 // LoadCache reads suite.json at path. An empty path or a missing file returns
@@ -48,7 +48,7 @@ func LoadCache(path string) (*Cache, error) {
 	}
 	var c Cache
 	if err := json.Unmarshal(data, &c); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrCorruptCache, err)
+		return nil, ErrCorruptCache
 	}
 	if c.SchemaVersion != SchemaVersion {
 		return nil, ErrCorruptCache

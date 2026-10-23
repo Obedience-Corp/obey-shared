@@ -201,8 +201,8 @@ func TestLoadCacheRejectsCorruptFiles(t *testing.T) {
 			}()
 			select {
 			case err := <-done:
-				if !errors.Is(err, ErrCorruptCache) {
-					t.Errorf("err = %v, want ErrCorruptCache", err)
+				if !errors.Is(err, ErrCorruptCache) || err.Error() != ErrCorruptCache.Error() {
+					t.Errorf("err = %q, want ErrCorruptCache with no file content", err)
 				}
 			case <-time.After(2 * time.Second):
 				t.Fatal("LoadCache blocked")

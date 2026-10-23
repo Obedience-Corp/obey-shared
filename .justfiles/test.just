@@ -52,7 +52,7 @@ container-fs image="alpine:3.22":
     #!/usr/bin/env bash
     set -euo pipefail
     set +e
-    files=$(grep -rl --include='*_test.go' '^//go:build .*container_fs' .)
+    files=$(grep -rl --include='*_test.go' '^//go:build.*[^!]container_fs' .)
     rc=$?
     set -e
     if [ "$rc" -gt 1 ]; then echo "container-fs: grep failed ($rc)" >&2; exit "$rc"; fi
