@@ -33,6 +33,11 @@ func parseVersion(v string) (semver, bool) {
 	return s, true
 }
 
+func isStableVersion(v string) bool {
+	s, ok := parseVersion(v)
+	return ok && len(s.pre) == 0
+}
+
 // NormalizeVersion strips one leading "v".
 func NormalizeVersion(v string) string {
 	return strings.TrimPrefix(v, "v")

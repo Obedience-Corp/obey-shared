@@ -2,8 +2,12 @@ package updatecheck
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
+	"io"
+	"log"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -58,6 +62,7 @@ func TestFetchRejectsBadResponses(t *testing.T) {
 		{"whitespace", serveTag(" v0.3.24"), ErrInvalidRelease},
 		{"prerelease", serveBody(`{"tag_name":"v0.3.25-rc.1","prerelease":true}`), ErrInvalidRelease},
 		{"draft", serveBody(`{"tag_name":"v0.3.25","draft":true}`), ErrInvalidRelease},
+		{"prerelease tag marked stable", serveBody(`{"tag_name":"v0.3.25-rc.1","prerelease":false}`), ErrInvalidRelease},
 		{"oversized", serveBody(`{"tag_name":"` + strings.Repeat("9", maxReleaseBody) + `"}`), ErrInvalidRelease},
 	}
 	for _, tt := range tests {
@@ -85,6 +90,9 @@ func TestFetchWithBudgetStopsAtAmbientTimeout(t *testing.T) {
 	if elapsed > AmbientTimeout+300*time.Millisecond {
 		t.Errorf("returned after %v, budget is %v", elapsed, AmbientTimeout)
 	}
+	if err.Error() != "updatecheck: fetch latest release: timed out" {
+		t.Errorf("err = %q", err)
+	}
 }
 
 // A caller-supplied client without a timeout is still bounded by the budget.
@@ -109,8 +117,8 @@ func TestFetchHonorsCallerCancellation(t *testing.T) {
 	}()
 	start := time.Now()
 	_, err := fetchWithBudget(ctx, Options{Fetcher: srv.fetcher()}, ExplicitTimeout)
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("err = %v, want context.Canceled", err)
+	if !errors.Is(err, context.Canceled) || err.Error() != "updatecheck: fetch latest release: canceled" {
+		t.Fatalf("err = %v, want context.Canceled with fixed text", err)
 	}
 	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Errorf("returned after %v despite cancellation", elapsed)
@@ -156,5 +164,22 @@ func TestFetchKeepsRedirectTextOutOfErrors(t *testing.T) {
 	_, err = same.fetcher().fetchLatestStable(context.Background())
 	if err == nil || strings.Contains(err.Error(), "SERVER-TEXT") {
 		t.Errorf("same-host redirect then dropped connection: err = %v", err)
+	}
+}
+
+// Certificate names are server-chosen text, so a TLS failure reports a fixed
+// category while errors.As still reaches the cause.
+func TestFetchTLSFailureHasFixedText(t *testing.T) {
+	srv := httptest.NewUnstartedServer(serveTag("v0.3.24"))
+	srv.Config.ErrorLog = log.New(io.Discard, "", 0)
+	srv.StartTLS()
+	t.Cleanup(srv.Close)
+	_, err := (&Fetcher{URL: srv.URL}).fetchLatestStable(context.Background())
+	var certErr *tls.CertificateVerificationError
+	if !errors.As(err, &certErr) {
+		t.Fatalf("err = %v, want a certificate verification error", err)
+	}
+	if err.Error() != "updatecheck: fetch latest release: TLS certificate rejected" {
+		t.Errorf("err = %q", err)
 	}
 }

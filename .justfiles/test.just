@@ -51,7 +51,12 @@ pkg package:
 container-fs image="alpine:3.22":
     #!/usr/bin/env bash
     set -euo pipefail
-    pkgs=$(grep -rl --include='*_test.go' '^//go:build container_fs' . | sed 's#/[^/]*$##' | sort -u || true)
+    set +e
+    files=$(grep -rl --include='*_test.go' '^//go:build .*container_fs' .)
+    rc=$?
+    set -e
+    if [ "$rc" -gt 1 ]; then echo "container-fs: grep failed ($rc)" >&2; exit "$rc"; fi
+    pkgs=$(printf '%s\n' "$files" | sed -e '/^$/d' -e 's#/[^/]*$##' | sort -u)
     if [ -z "$pkgs" ]; then echo "no container_fs tests"; exit 0; fi
     go vet -tags container_fs $pkgs
     case "$(docker info --format '{{{{.Architecture}}')" in

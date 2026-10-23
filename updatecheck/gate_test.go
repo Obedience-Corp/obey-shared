@@ -4,6 +4,7 @@ package updatecheck
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -108,6 +109,23 @@ func TestCancelledContextSkipsAmbient(t *testing.T) {
 		t.Error("Check ignored a cancelled context")
 	}
 	srv.requireHits(t, 0)
+	if p.nowCalls.Load() != 0 {
+		t.Errorf("clock read %d times, want 0", p.nowCalls.Load())
+	}
+}
+
+func TestCheckCancelDuringFetchReturnsContextError(t *testing.T) {
+	srv := newBlockingServer(t)
+	var p probes
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+	res, err := Check(ctx, "v0.3.23", p.opts(srv, SuppressInput{}))
+	if !errors.Is(err, context.Canceled) || res != (Result{}) {
+		t.Errorf("Check = %+v, %v; want zero Result and context.Canceled", res, err)
+	}
 }
 
 // When persisting notify state fails, no notice is shown, so a read-only home

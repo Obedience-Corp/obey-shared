@@ -123,17 +123,25 @@ func TestHintSkipsNonExecutableFestival(t *testing.T) {
 	}
 }
 
+// Placing a hub beside the running test binary flips the hint, which proves
+// "" falls back to os.Executable.
 func TestHintDefaultsToRunningExecutable(t *testing.T) {
 	t.Setenv("PATH", "")
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(filepath.Dir(exe), "festival")); err == nil {
-		t.Skip("festival sits beside the test binary")
+	beside := filepath.Join(filepath.Dir(exe), "festival")
+	if _, err := os.Stat(beside); err == nil {
+		t.Skip("festival already sits beside the test binary")
 	}
 	if got := ResolveUpgradeHint(""); got != seeHint {
-		t.Errorf("hint = %+v, want %+v", got, seeHint)
+		t.Fatalf("without a hub: hint = %+v, want %+v", got, seeHint)
+	}
+	suiteFestival(t, beside)
+	t.Cleanup(func() { _ = os.Remove(beside) })
+	if got := ResolveUpgradeHint(""); got != festivalHint {
+		t.Errorf("with a hub: hint = %+v, want %+v", got, festivalHint)
 	}
 }
 

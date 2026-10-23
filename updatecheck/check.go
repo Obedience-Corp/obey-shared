@@ -127,6 +127,9 @@ func Check(ctx context.Context, suiteVersion string, opts Options) (Result, erro
 	var refreshErr error
 	if opts.ForceRefresh || !cacheFresh(cache, now, opts.CacheTTL) {
 		rel, err := fetchWithBudget(ctx, opts, ExplicitTimeout)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return Result{}, ctxErr
+		}
 		if err != nil {
 			refreshErr = err
 		} else {

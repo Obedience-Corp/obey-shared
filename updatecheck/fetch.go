@@ -2,12 +2,13 @@ package updatecheck
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
-	"net/url"
 	"time"
 )
 
@@ -18,8 +19,8 @@ var (
 	ErrReleaseStatus = errors.New("updatecheck: unexpected release API status")
 
 	// ErrInvalidRelease means the release API body was not JSON, was marked
-	// prerelease or draft, or its tag_name was not a release version. Server
-	// content is never included.
+	// prerelease or draft, or its tag_name was not a stable X.Y.Z version.
+	// Server content is never included.
 	ErrInvalidRelease = errors.New("updatecheck: release API returned an invalid release")
 )
 
@@ -60,12 +61,7 @@ func (f *Fetcher) fetchLatestStable(ctx context.Context) (release, error) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		// url.Error carries the request URL, which a redirect can set.
-		var urlErr *url.Error
-		if errors.As(err, &urlErr) {
-			err = urlErr.Err
-		}
-		return release{}, fmt.Errorf("updatecheck: fetch latest release: %w", err)
+		return release{}, newFetchError(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -84,10 +80,44 @@ func (f *Fetcher) fetchLatestStable(ctx context.Context) (release, error) {
 		}
 		return release{}, ErrInvalidRelease
 	}
-	if raw.Prerelease || raw.Draft || !IsReleaseVersion(raw.TagName) {
+	if raw.Prerelease || raw.Draft || !isStableVersion(raw.TagName) {
 		return release{}, ErrInvalidRelease
 	}
 	return releaseFromTag(raw.TagName), nil
+}
+
+// fetchError has fixed text, because transport errors can carry
+// server-chosen strings (a redirect URL, certificate names). Unwrap keeps
+// errors.Is and errors.As working on the cause.
+type fetchError struct {
+	kind string
+	err  error
+}
+
+func (e *fetchError) Error() string { return "updatecheck: fetch latest release: " + e.kind }
+
+func (e *fetchError) Unwrap() error { return e.err }
+
+func newFetchError(err error) error {
+	var (
+		dnsErr  *net.DNSError
+		certErr *tls.CertificateVerificationError
+		netErr  net.Error
+	)
+	kind := "network error"
+	switch {
+	case errors.Is(err, context.Canceled):
+		kind = "canceled"
+	case errors.Is(err, context.DeadlineExceeded):
+		kind = "timed out"
+	case errors.As(err, &dnsErr):
+		kind = "DNS lookup failed"
+	case errors.As(err, &certErr):
+		kind = "TLS certificate rejected"
+	case errors.As(err, &netErr) && netErr.Timeout():
+		kind = "timed out"
+	}
+	return &fetchError{kind: kind, err: err}
 }
 
 // budgetClient follows redirects only within the original scheme and host

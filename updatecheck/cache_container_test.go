@@ -219,6 +219,7 @@ func TestLoadCacheDropsUnvalidatedRelease(t *testing.T) {
 		"tag/version differ":  `"latest_tag":"v0.3.24","latest_version":"0.4.0"`,
 		"non-semver tag":      `"latest_tag":"latest","latest_version":"latest"`,
 		"version without tag": `"latest_version":"0.3.24"`,
+		"prerelease tag":      `"latest_tag":"v0.3.25-rc.1","latest_version":"0.3.25-rc.1"`,
 	}
 	for name, fields := range tests {
 		t.Run(name, func(t *testing.T) {

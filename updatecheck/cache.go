@@ -60,7 +60,7 @@ func LoadCache(path string) (*Cache, error) {
 func sanitizeCache(c *Cache) {
 	c.Source = Source
 	c.Channel = ChannelStable
-	if IsReleaseVersion(c.LatestTag) && NormalizeVersion(c.LatestTag) == c.LatestVersion {
+	if isStableVersion(c.LatestTag) && NormalizeVersion(c.LatestTag) == c.LatestVersion {
 		c.HTMLURL = releaseTagPagePrefix + c.LatestTag
 	} else {
 		c.LatestTag, c.LatestVersion, c.HTMLURL = "", "", ""
