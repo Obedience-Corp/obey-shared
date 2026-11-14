@@ -26,6 +26,10 @@ const (
 	// DefaultNotifyMinGap is the minimum time between ambient notices.
 	DefaultNotifyMinGap = 6 * time.Hour
 
+	// DefaultNotifyRepeatGap is how long the ambient notice for a release
+	// stays quiet before it is shown again while the install is still behind.
+	DefaultNotifyRepeatGap = 24 * time.Hour
+
 	// DefaultRetryBackoff is how long the ambient path waits after a failed
 	// refresh before trying the network again.
 	DefaultRetryBackoff = time.Hour
