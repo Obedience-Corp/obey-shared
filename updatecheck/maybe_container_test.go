@@ -211,9 +211,14 @@ func TestDisplayPolicyAcrossInvocations(t *testing.T) {
 	srv.serve(serveTag("v0.3.26"))
 	requireNoNotice(t, step(11*time.Hour))
 	requireNotice(t, step(15*time.Hour), "0.3.26")
+
+	// Still behind a day later: the same release is announced again, once.
+	requireNoNotice(t, step(15*time.Hour+DefaultNotifyRepeatGap-time.Minute))
+	requireNotice(t, step(15*time.Hour+DefaultNotifyRepeatGap), "0.3.26")
+	requireNoNotice(t, step(16*time.Hour+DefaultNotifyRepeatGap))
 }
 
-// D3: one nudge per version per machine, whichever CLI shows it.
+// D3: one nudge per version per repeat gap per machine, whichever CLI shows it.
 func TestNotifyStateIsSharedAcrossCLIs(t *testing.T) {
 	path := cachePath(t)
 	srv := newReleaseServer(t, serveTag("v0.3.24"))

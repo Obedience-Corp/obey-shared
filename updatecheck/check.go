@@ -34,6 +34,9 @@ type Options struct {
 	// NotifyMinGap defaults to DefaultNotifyMinGap.
 	NotifyMinGap time.Duration
 
+	// NotifyRepeatGap defaults to DefaultNotifyRepeatGap.
+	NotifyRepeatGap time.Duration
+
 	// RetryBackoff defaults to DefaultRetryBackoff.
 	RetryBackoff time.Duration
 }
@@ -66,7 +69,7 @@ func MaybeNotify(ctx context.Context, suiteVersion string, opts Options) *Notice
 	if ctx.Err() != nil {
 		return nil
 	}
-	notify := shouldAmbientNotify(cache, suiteVersion, now, opts.NotifyMinGap)
+	notify := shouldAmbientNotify(cache, suiteVersion, now, opts.NotifyMinGap, opts.NotifyRepeatGap)
 	if notify {
 		markNotified(cache, now)
 	}
@@ -181,6 +184,9 @@ func normalizeOptions(opts Options) Options {
 	}
 	if opts.NotifyMinGap <= 0 {
 		opts.NotifyMinGap = DefaultNotifyMinGap
+	}
+	if opts.NotifyRepeatGap <= 0 {
+		opts.NotifyRepeatGap = DefaultNotifyRepeatGap
 	}
 	if opts.RetryBackoff <= 0 {
 		opts.RetryBackoff = DefaultRetryBackoff

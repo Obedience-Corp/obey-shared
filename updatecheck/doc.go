@@ -10,8 +10,8 @@
 // MaybeNotify is the ambient path. It is cache-first and fails open. It
 // refreshes within AmbientTimeout, at most once per DefaultCacheTTL after a
 // success and once per DefaultRetryBackoff after a failure, and returns a
-// Notice at most once per new release per machine with DefaultNotifyMinGap
-// between notices. Check is the explicit "version --check" path.
+// Notice for a new release at most once per DefaultNotifyMinGap per machine,
+// then again every DefaultNotifyRepeatGap while the install stays behind. Check is the explicit "version --check" path.
 //
 // The package never installs or upgrades anything. The upgrade hint is computed
 // locally; the only server-derived string that can reach a terminal is a
